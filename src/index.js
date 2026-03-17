@@ -11,8 +11,8 @@ const app = express();
 ======================= */
 app.use(cors({
   origin: [
-    'http://localhost:4200',
-    'https://vyapar-pos-git-development-raismansuri74059-1745s-projects.vercel.app'
+    'http://localhost:4200/',
+    'https://vyapar-pos-git-development-raismansuri74059-1745s-projects.vercel.app/'
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
