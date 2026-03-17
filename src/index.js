@@ -7,7 +7,7 @@ const mongoose = require('mongoose');
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(cors('vyapar-pos-git-development-raismansuri74059-1745s-projects.vercel.app'));
 app.use(express.json());
 app.use(morgan('dev'));
 
