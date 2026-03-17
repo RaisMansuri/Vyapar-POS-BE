@@ -22,11 +22,11 @@ app.get('/api/health', (req, res) => {
 });
 
 // Routes
-app.use('/api/auth', require('../routes/auth.routes'));
-app.use('/api/sales', require('../routes/sale.routes'));
-app.use('/api/products', require('../routes/product.routes'));
-app.use('/api/customers', require('../routes/customer.routes'));
-app.use('/api/tickets', require('../routes/ticket.routes'));
+app.use('/api/auth', require('./routes/auth.routes'));
+app.use('/api/sales', require('./routes/sale.routes'));
+app.use('/api/products', require('./routes/product.routes'));
+app.use('/api/customers', require('./routes/customer.routes'));
+app.use('/api/tickets', require('./routes/ticket.routes'));
 
 // MongoDB (IMPORTANT: connect once)
 let isConnected = false;
