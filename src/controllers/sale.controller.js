@@ -1,4 +1,5 @@
 const Sale = require('../models/sale.model');
+const { successResponse, errorResponse } = require('../utils/response');
 
 // Helper to generate a unique sale number (e.g., SAL-20231027-001)
 const generateSaleNumber = async () => {
@@ -37,9 +38,9 @@ exports.createSale = async (req, res) => {
     });
 
     const savedSale = await newSale.save();
-    res.status(201).json(savedSale);
+    return successResponse(res, savedSale, 'Sale created successfully', 201);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    return errorResponse(res, 'Failed to create sale', 400, error);
   }
 };
 
@@ -57,9 +58,9 @@ exports.getSales = async (req, res) => {
     }
 
     const sales = await Sale.find(query).sort({ timestamp: -1 });
-    res.status(200).json(sales);
+    return successResponse(res, sales, 'Sales retrieved successfully');
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    return errorResponse(res, 'Failed to retrieve sales', 500, error);
   }
 };
 
@@ -94,12 +95,12 @@ exports.getSalesReport = async (req, res) => {
       }
     ]);
 
-    res.status(200).json({
+    return successResponse(res, {
       byStaff: stats,
       overall: overall[0] || { totalTransactions: 0, totalRevenue: 0 }
-    });
+    }, 'Sales report retrieved successfully');
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    return errorResponse(res, 'Failed to retrieve sales report', 500, error);
   }
 };
 // Get general sales stats for dashboard
@@ -132,12 +133,12 @@ exports.getSalesStats = async (req, res) => {
       }
     ]);
 
-    res.json({
+    return successResponse(res, {
       byDay: salesByDay,
       byCategory: salesByCategory
-    });
+    }, 'Sales stats retrieved successfully');
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    return errorResponse(res, 'Failed to retrieve sales stats', 500, error);
   }
 };
 
@@ -157,8 +158,8 @@ exports.getDailyReport = async (req, res) => {
       },
       { $sort: { "_id": -1 } }
     ]);
-    res.json(report);
+    return successResponse(res, report, 'Daily report retrieved successfully');
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    return errorResponse(res, 'Failed to retrieve daily report', 500, error);
   }
 };

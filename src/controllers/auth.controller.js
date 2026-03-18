@@ -1,5 +1,6 @@
 const User = require('../models/user.model');
 const jwt = require('jsonwebtoken');
+const { successResponse, errorResponse } = require('../utils/response');
 
 const register = async (req, res) => {
   try {
@@ -8,7 +9,7 @@ const register = async (req, res) => {
     // Check if user already exists
     const userExists = await User.findOne({ email });
     if (userExists) {
-      return res.status(400).json({ message: 'User already exists' });
+      return errorResponse(res, 'User already exists', 400);
     }
 
     // Create new user
@@ -26,7 +27,7 @@ const register = async (req, res) => {
       expiresIn: '24h'
     });
 
-    res.status(201).json({
+    return successResponse(res, {
       token,
       user: {
         id: user._id,
@@ -34,14 +35,14 @@ const register = async (req, res) => {
         email: user.email,
         role: user.role
       }
-    });
+    }, 'User registered successfully', 201);
   } catch (error) {
     console.error('--- REGISTRATION ERROR ---');
     console.error('Error Message:', error.message);
     console.error('Error Stack:', error.stack);
     console.error('Request Body:', req.body);
     console.error('---------------------------');
-    res.status(500).json({ message: 'Server error', error: error.message });
+    return errorResponse(res, 'Registration failed', 500, error);
   }
 };
 
@@ -52,13 +53,13 @@ const login = async (req, res) => {
     // Find user by email
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(400).json({ message: 'Invalid credentials' });
+      return errorResponse(res, 'Invalid credentials', 400);
     }
 
     // Compare password
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
-      return res.status(400).json({ message: 'Invalid credentials' });
+      return errorResponse(res, 'Invalid credentials', 400);
     }
 
     // Generate token
@@ -66,7 +67,7 @@ const login = async (req, res) => {
       expiresIn: '24h'
     });
 
-    res.json({
+    return successResponse(res, {
       token,
       user: {
         id: user._id,
@@ -74,18 +75,18 @@ const login = async (req, res) => {
         email: user.email,
         role: user.role
       }
-    });
+    }, 'Login successful');
   } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
+    return errorResponse(res, 'Login failed', 500, error);
   }
 };
 
 const getProfile = async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select('-password');
-    res.json(user);
+    return successResponse(res, user, 'Profile retrieved successfully');
   } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
+    return errorResponse(res, 'Failed to retrieve profile', 500, error);
   }
 };
 

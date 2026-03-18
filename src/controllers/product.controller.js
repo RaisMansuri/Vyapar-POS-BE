@@ -1,4 +1,5 @@
 const Product = require('../models/product.model');
+const { successResponse, errorResponse } = require('../utils/response');
 
 // Create Product
 exports.createProduct = async (req, res) => {
@@ -17,13 +18,13 @@ exports.createProduct = async (req, res) => {
 
     const product = new Product(data);
     const savedProduct = await product.save();
-    res.status(201).json(savedProduct);
+    return successResponse(res, savedProduct, 'Product created successfully', 201);
   } catch (error) {
     console.error('--- PRODUCT CREATION ERROR ---');
     console.error('Error Message:', error.message);
     console.error('Request Data:', req.body);
     console.error('------------------------------');
-    res.status(400).json({ message: error.message });
+    return errorResponse(res, 'Failed to create product', 400, error);
   }
 };
 
@@ -31,9 +32,9 @@ exports.createProduct = async (req, res) => {
 exports.getProducts = async (req, res) => {
   try {
     const products = await Product.find();
-    res.json(products);
+    return successResponse(res, products, 'Products retrieved successfully');
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    return errorResponse(res, 'Failed to retrieve products', 500, error);
   }
 };
 
@@ -41,10 +42,10 @@ exports.getProducts = async (req, res) => {
 exports.getProductById = async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
-    if (!product) return res.status(404).json({ message: 'Product not found' });
-    res.json(product);
+    if (!product) return errorResponse(res, 'Product not found', 404);
+    return successResponse(res, product, 'Product retrieved successfully');
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    return errorResponse(res, 'Failed to retrieve product', 500, error);
   }
 };
 
@@ -59,13 +60,13 @@ exports.updateProduct = async (req, res) => {
     }
 
     const product = await Product.findByIdAndUpdate(req.params.id, data, { new: true, runValidators: true });
-    if (!product) return res.status(404).json({ message: 'Product not found' });
-    res.json(product);
+    if (!product) return errorResponse(res, 'Product not found', 404);
+    return successResponse(res, product, 'Product updated successfully');
   } catch (error) {
     console.error('--- PRODUCT UPDATE ERROR ---');
     console.error('Error Message:', error.message);
     console.error('----------------------------');
-    res.status(400).json({ message: error.message });
+    return errorResponse(res, 'Failed to update product', 400, error);
   }
 };
 
@@ -73,10 +74,10 @@ exports.updateProduct = async (req, res) => {
 exports.deleteProduct = async (req, res) => {
   try {
     const product = await Product.findByIdAndDelete(req.params.id);
-    if (!product) return res.status(404).json({ message: 'Product not found' });
-    res.json({ message: 'Product deleted' });
+    if (!product) return errorResponse(res, 'Product not found', 404);
+    return successResponse(res, null, 'Product deleted successfully');
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    return errorResponse(res, 'Failed to delete product', 500, error);
   }
 };
 
@@ -84,9 +85,9 @@ exports.deleteProduct = async (req, res) => {
 exports.getCategories = async (req, res) => {
   try {
     const categories = await Product.distinct('category');
-    res.json(categories);
+    return successResponse(res, categories, 'Categories retrieved successfully');
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    return errorResponse(res, 'Failed to retrieve categories', 500, error);
   }
 };
 
@@ -96,8 +97,8 @@ exports.getLowStock = async (req, res) => {
     const products = await Product.find({
       $expr: { $lte: ["$stock", "$minStockLevel"] }
     });
-    res.json(products);
+    return successResponse(res, products, 'Low stock products retrieved successfully');
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    return errorResponse(res, 'Failed to retrieve low stock products', 500, error);
   }
 };

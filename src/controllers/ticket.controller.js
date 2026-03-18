@@ -1,4 +1,5 @@
 const Ticket = require('../models/ticket.model');
+const { successResponse, errorResponse } = require('../utils/response');
 
 // Create Ticket
 exports.createTicket = async (req, res) => {
@@ -9,9 +10,9 @@ exports.createTicket = async (req, res) => {
     }
     const ticket = new Ticket(req.body);
     const savedTicket = await ticket.save();
-    res.status(201).json(savedTicket);
+    return successResponse(res, savedTicket, 'Ticket created successfully', 201);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    return errorResponse(res, 'Failed to create ticket', 400, error);
   }
 };
 
@@ -19,9 +20,9 @@ exports.createTicket = async (req, res) => {
 exports.getTickets = async (req, res) => {
   try {
     const tickets = await Ticket.find().sort({ createdAt: -1 });
-    res.json(tickets);
+    return successResponse(res, tickets, 'Tickets retrieved successfully');
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    return errorResponse(res, 'Failed to retrieve tickets', 500, error);
   }
 };
 
@@ -29,10 +30,10 @@ exports.getTickets = async (req, res) => {
 exports.getTicketById = async (req, res) => {
   try {
     const ticket = await Ticket.findOne({ id: req.params.id });
-    if (!ticket) return res.status(404).json({ message: 'Ticket not found' });
-    res.json(ticket);
+    if (!ticket) return errorResponse(res, 'Ticket not found', 404);
+    return successResponse(res, ticket, 'Ticket retrieved successfully');
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    return errorResponse(res, 'Failed to retrieve ticket', 500, error);
   }
 };
 
@@ -45,10 +46,10 @@ exports.updateTicketStatus = async (req, res) => {
         { status, updatedAt: new Date() }, 
         { new: true }
     );
-    if (!ticket) return res.status(404).json({ message: 'Ticket not found' });
-    res.json(ticket);
+    if (!ticket) return errorResponse(res, 'Ticket not found', 404);
+    return successResponse(res, ticket, 'Ticket status updated successfully');
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    return errorResponse(res, 'Failed to update ticket status', 400, error);
   }
 };
 
@@ -57,13 +58,13 @@ exports.addComment = async (req, res) => {
   try {
     const { author, message } = req.body;
     const ticket = await Ticket.findOne({ id: req.params.id });
-    if (!ticket) return res.status(404).json({ message: 'Ticket not found' });
+    if (!ticket) return errorResponse(res, 'Ticket not found', 404);
     
     ticket.comments.push({ author, message });
     const savedTicket = await ticket.save();
-    res.status(201).json(savedTicket);
+    return successResponse(res, savedTicket, 'Comment added successfully', 201);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    return errorResponse(res, 'Failed to add comment', 400, error);
   }
 };
 
@@ -71,9 +72,9 @@ exports.addComment = async (req, res) => {
 exports.deleteTicket = async (req, res) => {
   try {
     const ticket = await Ticket.findOneAndDelete({ id: req.params.id });
-    if (!ticket) return res.status(404).json({ message: 'Ticket not found' });
-    res.json({ message: 'Ticket deleted' });
+    if (!ticket) return errorResponse(res, 'Ticket not found', 404);
+    return successResponse(res, null, 'Ticket deleted successfully');
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    return errorResponse(res, 'Failed to delete ticket', 500, error);
   }
 };
