@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { register, login, getProfile } = require('../controllers/auth.controller');
+const authController = require('../controllers/auth.controller');
 const authMiddleware = require('../middleware/auth.middleware');
 
 /**
@@ -46,7 +46,7 @@ const authMiddleware = require('../middleware/auth.middleware');
  *       400:
  *         description: User already exists
  */
-router.post('/register', register);
+router.post('/register', authController.register);
 
 /**
  * @swagger
@@ -69,8 +69,91 @@ router.post('/register', register);
  *               $ref: '#/components/schemas/AuthResponse'
  *       400:
  *         description: Invalid credentials
+ *       403:
+ *         description: Email not verified
  */
-router.post('/login', login);
+router.post('/login', authController.login);
+
+/**
+ * @swagger
+ * /api/auth/verify-otp:
+ *   post:
+ *     summary: Verify user email using 6-digit OTP
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - otp
+ *             properties:
+ *               email:
+ *                 type: string
+ *               otp:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Email verified successfully
+ *       400:
+ *         description: Invalid or expired code
+ */
+router.post('/verify-otp', authController.verifyOTP);
+
+/**
+ * @swagger
+ * /api/auth/verify-email:
+ *   post:
+ *     summary: Verify user email using 6-digit OTP (Compatible with older frontend)
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - otp
+ *             properties:
+ *               email:
+ *                 type: string
+ *               otp:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Email verified successfully
+ *       400:
+ *         description: Invalid or expired code
+ */
+router.post('/verify-email', authController.verifyOTP);
+
+/**
+ * @swagger
+ * /api/auth/resend-verification:
+ *   post:
+ *     summary: Resend verification code
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Verification code resent successfully
+ *       404:
+ *         description: User not found
+ */
+router.post('/resend-verification', authController.resendVerification);
 
 /**
  * @swagger
@@ -82,10 +165,35 @@ router.post('/login', login);
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: User profile retrieved
+ *         description: User profile retrieved successfully
  *       401:
  *         description: Unauthorized
+ *   put:
+ *     summary: Update user profile
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               phone:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Profile updated successfully
+ *       401:
+ *         description: Unauthorized
+ *       400:
+ *         description: Invalid input
  */
-router.get('/profile', authMiddleware, getProfile);
+router.get('/profile', authMiddleware, authController.getProfile);
+router.put('/profile', authMiddleware, authController.updateProfile);
 
 module.exports = router;
