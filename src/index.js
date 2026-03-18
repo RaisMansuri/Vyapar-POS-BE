@@ -3,6 +3,8 @@ const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
 const mongoose = require('mongoose');
+const swaggerUi = require('swagger-ui-express');
+const swaggerSpec = require('./config/swagger.config');
 
 const app = express();
 
@@ -43,6 +45,11 @@ app.get('/api/health', (req, res) => {
 });
 
 /* =======================
+   ✅ SWAGGER UI
+======================= */
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
+/* =======================
    ✅ ROUTES
 ======================= */
 app.use('/api/auth', require('./routes/auth.routes'));
@@ -68,6 +75,19 @@ async function connectDB() {
     console.error('MongoDB connection error:', error);
     throw error;
   }
+}
+
+/* =======================
+   ✅ SERVER START (LOCAL)
+======================= */
+const PORT = process.env.PORT || 5000;
+
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(PORT, async () => {
+    await connectDB();
+    console.log(`🚀 Server running on http://localhost:${PORT}`);
+    console.log('✅ MongoDB Connection process initiated...');
+  });
 }
 
 /* =======================

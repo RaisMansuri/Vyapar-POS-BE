@@ -36,6 +36,11 @@ const register = async (req, res) => {
       }
     });
   } catch (error) {
+    console.error('--- REGISTRATION ERROR ---');
+    console.error('Error Message:', error.message);
+    console.error('Error Stack:', error.stack);
+    console.error('Request Body:', req.body);
+    console.error('---------------------------');
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
