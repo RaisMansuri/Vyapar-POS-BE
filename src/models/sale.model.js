@@ -2,8 +2,7 @@ const mongoose = require('mongoose');
 
 const SaleItemSchema = new mongoose.Schema({
   productId: {
-    type: Number, // Using original ID from frontend for now, or could link to Mongoose ObjectId
-    required: true
+    type: mongoose.Schema.Types.Mixed
   },
   name: {
     type: String,
@@ -21,6 +20,10 @@ const SaleItemSchema = new mongoose.Schema({
   total: {
     type: Number,
     required: true
+  },
+  category: {
+    type: String,
+    default: 'Uncategorized'
   }
 });
 

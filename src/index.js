@@ -57,6 +57,7 @@ app.use('/api/sales', require('./routes/sale.routes'));
 app.use('/api/products', require('./routes/product.routes'));
 app.use('/api/customers', require('./routes/customer.routes'));
 app.use('/api/tickets', require('./routes/ticket.routes'));
+app.use('/api/users', require('./routes/user.routes'));
 
 /* =======================
    ✅ MONGODB CONNECTION (SERVERLESS SAFE)

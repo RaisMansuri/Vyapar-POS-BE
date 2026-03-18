@@ -88,5 +88,6 @@ router.get('/daily-report', saleController.getDailyReport);
  *         description: Sales report
  */
 router.get('/report', saleController.getSalesReport);
+router.get('/:id', saleController.getSaleById);
 
 module.exports = router;

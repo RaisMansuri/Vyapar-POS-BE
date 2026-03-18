@@ -1,6 +1,8 @@
 const Product = require('../models/product.model');
 const { successResponse, errorResponse } = require('../utils/response');
 
+const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 // Create Product
 exports.createProduct = async (req, res) => {
   try {
@@ -31,7 +33,31 @@ exports.createProduct = async (req, res) => {
 // Get all Products
 exports.getProducts = async (req, res) => {
   try {
-    const products = await Product.find();
+    const { category, categoryId, search, barcode, lowStock } = req.query;
+    const query = {};
+
+    const resolvedCategory = category || categoryId;
+    if (resolvedCategory) {
+      query.category = { $regex: `^${escapeRegex(resolvedCategory)}$`, $options: 'i' };
+    }
+
+    if (barcode) {
+      query.barcode = barcode;
+    }
+
+    if (search) {
+      query.$or = [
+        { name: { $regex: escapeRegex(search), $options: 'i' } },
+        { description: { $regex: escapeRegex(search), $options: 'i' } },
+        { barcode: { $regex: escapeRegex(search), $options: 'i' } }
+      ];
+    }
+
+    if (lowStock === 'true') {
+      query.$expr = { $lte: ['$stock', '$minStockLevel'] };
+    }
+
+    const products = await Product.find(query).sort({ createdAt: -1 });
     return successResponse(res, products, 'Products retrieved successfully');
   } catch (error) {
     return errorResponse(res, 'Failed to retrieve products', 500, error);

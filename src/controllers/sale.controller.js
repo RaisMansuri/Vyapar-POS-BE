@@ -1,5 +1,9 @@
 const Sale = require('../models/sale.model');
+const Product = require('../models/product.model');
+const mongoose = require('mongoose');
 const { successResponse, errorResponse } = require('../utils/response');
+
+const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // Helper to generate a unique sale number (e.g., SAL-20231027-001)
 const generateSaleNumber = async () => {
@@ -13,26 +17,75 @@ const generateSaleNumber = async () => {
   return `SAL-${date}-${(count + 1).toString().padStart(3, '0')}`;
 };
 
+const resolveProductCategory = async (item) => {
+  if (item.category) {
+    return item.category;
+  }
+
+  if (item.productId && mongoose.isValidObjectId(String(item.productId))) {
+    const product = await Product.findById(item.productId).select('category').lean();
+    if (product?.category) {
+      return product.category;
+    }
+  }
+
+  if (item.name) {
+    const product = await Product.findOne({
+      name: { $regex: `^${escapeRegex(item.name)}$`, $options: 'i' }
+    }).select('category').lean();
+    if (product?.category) {
+      return product.category;
+    }
+  }
+
+  return 'Uncategorized';
+};
+
+const normalizeSaleItems = async (items = []) => Promise.all(
+  (Array.isArray(items) ? items : []).map(async (item) => {
+    const quantity = Number(item.quantity || 1);
+    const price = Number(item.price || 0);
+    const total = item.total !== undefined ? Number(item.total) : quantity * price;
+
+    return {
+      productId: item.productId,
+      name: item.name || 'Unnamed Product',
+      quantity,
+      price,
+      total,
+      category: await resolveProductCategory(item)
+    };
+  })
+);
+
 // Create a new sale
 exports.createSale = async (req, res) => {
   try {
     const { items, totalAmount, tax, discount, paymentMethod, processedBy, paymentStatus, amountPaid, dueDate } = req.body;
-    
+    const normalizedItems = await normalizeSaleItems(items);
+
+    if (!normalizedItems.length) {
+      return errorResponse(res, 'At least one sale item is required', 400);
+    }
+
     const saleNumber = await generateSaleNumber();
-    
-    const amountDue = totalAmount - (amountPaid || 0);
+    const computedTotalAmount = totalAmount !== undefined
+      ? Number(totalAmount)
+      : normalizedItems.reduce((sum, item) => sum + item.total, 0);
+    const paidAmount = amountPaid !== undefined ? Number(amountPaid) : computedTotalAmount;
+    const amountDue = computedTotalAmount - paidAmount;
 
     const newSale = new Sale({
       saleNumber,
-      items,
-      totalAmount,
+      items: normalizedItems,
+      totalAmount: computedTotalAmount,
       tax,
       discount,
       paymentMethod,
-      processedBy,
+      processedBy: processedBy || 'System',
       timestamp: new Date(),
       paymentStatus: paymentStatus || 'Paid',
-      amountPaid: amountPaid || totalAmount,
+      amountPaid: paidAmount,
       amountDue: amountDue,
       dueDate: dueDate || null
     });
@@ -47,7 +100,7 @@ exports.createSale = async (req, res) => {
 // Get all sales (with simple filtering)
 exports.getSales = async (req, res) => {
   try {
-    const { startDate, endDate, staff } = req.query;
+    const { startDate, endDate, staff, paymentStatus, paymentMethod, category, product, search } = req.query;
     let query = {};
 
     if (startDate && endDate) {
@@ -57,10 +110,54 @@ exports.getSales = async (req, res) => {
       query.processedBy = staff;
     }
 
+    if (paymentStatus) {
+      query.paymentStatus = paymentStatus;
+    }
+
+    if (paymentMethod) {
+      query.paymentMethod = paymentMethod;
+    }
+
+    if (search) {
+      query.$or = [
+        { saleNumber: { $regex: escapeRegex(search), $options: 'i' } },
+        { processedBy: { $regex: escapeRegex(search), $options: 'i' } }
+      ];
+    }
+
+    const itemMatch = {};
+    if (category) {
+      itemMatch.category = { $regex: `^${escapeRegex(category)}$`, $options: 'i' };
+    }
+    if (product) {
+      itemMatch.name = { $regex: escapeRegex(product), $options: 'i' };
+    }
+    if (Object.keys(itemMatch).length) {
+      query.items = { $elemMatch: itemMatch };
+    }
+
     const sales = await Sale.find(query).sort({ timestamp: -1 });
     return successResponse(res, sales, 'Sales retrieved successfully');
   } catch (error) {
     return errorResponse(res, 'Failed to retrieve sales', 500, error);
+  }
+};
+
+exports.getSaleById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const query = mongoose.isValidObjectId(id)
+      ? { $or: [{ _id: id }, { saleNumber: id }] }
+      : { saleNumber: id };
+
+    const sale = await Sale.findOne(query);
+    if (!sale) {
+      return errorResponse(res, 'Sale not found', 404);
+    }
+
+    return successResponse(res, sale, 'Sale retrieved successfully');
+  } catch (error) {
+    return errorResponse(res, 'Failed to retrieve sale', 500, error);
   }
 };
 
@@ -127,15 +224,26 @@ exports.getSalesStats = async (req, res) => {
       { $unwind: "$items" },
       {
         $group: {
-          _id: "$items.category", // Note: Ensure category is passed in items or look up from Product
+          _id: { $ifNull: ["$items.category", "Uncategorized"] },
           value: { $sum: "$items.total" }
+        }
+      }
+    ]);
+
+    const overall = await Sale.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalOrders: { $sum: 1 },
+          totalRevenue: { $sum: '$totalAmount' }
         }
       }
     ]);
 
     return successResponse(res, {
       byDay: salesByDay,
-      byCategory: salesByCategory
+      byCategory: salesByCategory,
+      summary: overall[0] || { totalOrders: 0, totalRevenue: 0 }
     }, 'Sales stats retrieved successfully');
   } catch (error) {
     return errorResponse(res, 'Failed to retrieve sales stats', 500, error);
@@ -145,19 +253,63 @@ exports.getSalesStats = async (req, res) => {
 // Get detailed daily report list
 exports.getDailyReport = async (req, res) => {
   try {
-    const report = await Sale.aggregate([
-      {
-        $group: {
-          _id: { $dateToString: { format: "%Y-%m-%d", date: "$timestamp" } },
-          orders: { $sum: 1 },
-          revenue: { $sum: "$totalAmount" },
-          taxable: { $sum: "$totalAmount" }, // Simple approximation if not stored separately
-          gst: { $sum: "$tax" },
-          profit: { $sum: { $subtract: ["$totalAmount", "$tax"] } } // Placeholder logic
-        }
-      },
-      { $sort: { "_id": -1 } }
-    ]);
+    const { startDate, endDate, category, product, productId, paymentMethod, processedBy } = req.query;
+    const saleQuery = {};
+
+    if (startDate || endDate) {
+      saleQuery.timestamp = {};
+      if (startDate) saleQuery.timestamp.$gte = new Date(startDate);
+      if (endDate) saleQuery.timestamp.$lte = new Date(endDate);
+    }
+
+    if (paymentMethod) {
+      saleQuery.paymentMethod = paymentMethod;
+    }
+
+    if (processedBy) {
+      saleQuery.processedBy = processedBy;
+    }
+
+    const sales = await Sale.find(saleQuery).sort({ timestamp: -1 }).lean();
+    const reportMap = new Map();
+
+    sales.forEach((sale) => {
+      const matchingItems = (sale.items || []).filter((item) => {
+        const categoryMatch = !category || String(item.category || '').toLowerCase() === String(category).toLowerCase();
+        const productMatch = !product || String(item.name || '').toLowerCase().includes(String(product).toLowerCase());
+        const productIdMatch = !productId || String(item.productId) === String(productId);
+        return categoryMatch && productMatch && productIdMatch;
+      });
+
+      if (!matchingItems.length) {
+        return;
+      }
+
+      const dayKey = new Date(sale.timestamp).toISOString().slice(0, 10);
+      const matchedRevenue = matchingItems.reduce((sum, item) => sum + Number(item.total || 0), 0);
+      const taxRatio = sale.totalAmount ? matchedRevenue / sale.totalAmount : 0;
+      const matchedTax = Number(sale.tax || 0) * taxRatio;
+
+      if (!reportMap.has(dayKey)) {
+        reportMap.set(dayKey, {
+          _id: dayKey,
+          orders: 0,
+          revenue: 0,
+          taxable: 0,
+          gst: 0,
+          profit: 0
+        });
+      }
+
+      const bucket = reportMap.get(dayKey);
+      bucket.orders += 1;
+      bucket.revenue += matchedRevenue;
+      bucket.taxable += matchedRevenue;
+      bucket.gst += matchedTax;
+      bucket.profit += matchedRevenue - matchedTax;
+    });
+
+    const report = Array.from(reportMap.values()).sort((a, b) => b._id.localeCompare(a._id));
     return successResponse(res, report, 'Daily report retrieved successfully');
   } catch (error) {
     return errorResponse(res, 'Failed to retrieve daily report', 500, error);
