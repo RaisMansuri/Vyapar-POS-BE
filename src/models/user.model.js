@@ -21,7 +21,7 @@ const UserSchema = new mongoose.Schema({
   role: {
     type: String,
     enum: ['Admin', 'Staff'],
-    default: 'Staff'
+    default: 'Admin'
   },
   isVerified: {
     type: Boolean,
@@ -32,20 +32,26 @@ const UserSchema = new mongoose.Schema({
   },
   verificationTokenExpires: {
     type: Date
+  },
+  resetPasswordToken: {
+    type: String
+  },
+  resetPasswordExpires: {
+    type: Date
   }
 }, {
   timestamps: true
 });
 
 // Hash password before saving
-UserSchema.pre('save', async function() {
+UserSchema.pre('save', async function () {
   if (!this.isModified('password')) return;
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
 });
 
 // Method to compare passwords
-UserSchema.methods.comparePassword = async function(candidatePassword) {
+UserSchema.methods.comparePassword = async function (candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
 };
 

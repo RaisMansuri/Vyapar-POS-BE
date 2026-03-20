@@ -33,6 +33,18 @@ const CustomerSchema = new mongoose.Schema({
   },
   notes: {
     type: String
+  },
+  loyaltyPoints: {
+    type: Number,
+    default: 0
+  },
+  walletBalance: {
+    type: Number,
+    default: 0
+  },
+  creditLimit: {
+    type: Number,
+    default: 0
   }
 }, {
   timestamps: true

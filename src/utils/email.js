@@ -10,9 +10,12 @@ const sendEmail = async (email, subject, html) => {
   try {
     // For development, you can use Mailtrap or Gmail with App Password
     // These should be in your .env file
+    const port = Number(process.env.EMAIL_PORT) || 2525;
+    const host = process.env.EMAIL_HOST || 'smtp.mailtrap.io';
+
     const transportConfig = {
-      host: process.env.EMAIL_HOST || 'smtp.mailtrap.io',
-      port: process.env.EMAIL_PORT || 2525
+      host: host,
+      port: port
     };
 
     if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {

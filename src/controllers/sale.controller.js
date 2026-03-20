@@ -1,5 +1,6 @@
 const Sale = require('../models/sale.model');
 const Product = require('../models/product.model');
+const Customer = require('../models/customer.model');
 const mongoose = require('mongoose');
 const { successResponse, errorResponse } = require('../utils/response');
 
@@ -47,11 +48,15 @@ const normalizeSaleItems = async (items = []) => Promise.all(
     const price = Number(item.price || 0);
     const total = item.total !== undefined ? Number(item.total) : quantity * price;
 
+    const product = await Product.findById(item.productId).lean();
+    const costPrice = product ? product.costPrice : (item.costPrice || 0);
+
     return {
       productId: item.productId,
       name: item.name || 'Unnamed Product',
       quantity,
       price,
+      costPrice,
       total,
       category: await resolveProductCategory(item)
     };
@@ -61,7 +66,7 @@ const normalizeSaleItems = async (items = []) => Promise.all(
 // Create a new sale
 exports.createSale = async (req, res) => {
   try {
-    const { items, totalAmount, tax, discount, paymentMethod, processedBy, paymentStatus, amountPaid, dueDate } = req.body;
+    const { items, totalAmount, tax, discount, paymentMethod, processedBy, paymentStatus, amountPaid, dueDate, customerId } = req.body;
     const normalizedItems = await normalizeSaleItems(items);
 
     if (!normalizedItems.length) {
@@ -75,6 +80,39 @@ exports.createSale = async (req, res) => {
     const paidAmount = amountPaid !== undefined ? Number(amountPaid) : computedTotalAmount;
     const amountDue = computedTotalAmount - paidAmount;
 
+    // Update inventory
+    for (const item of normalizedItems) {
+      if (item.productId) {
+        await Product.findByIdAndUpdate(item.productId, {
+          $inc: { stock: -item.quantity }
+        });
+      }
+    }
+
+    // CRM+ Integration: Loyalty Points & Wallet
+    if (customerId) {
+        const customer = await Customer.findOne({ id: customerId });
+        if (customer) {
+            // Accrue Loyalty Points (1 point per Rs 100)
+            const pointsEarned = Math.floor(computedTotalAmount / 100);
+            customer.loyaltyPoints += pointsEarned;
+            
+            // Handle Wallet Payment
+            if (paymentMethod === 'Wallet') {
+                const totalAvailable = (customer.walletBalance || 0) + (customer.creditLimit || 0);
+                if (totalAvailable < computedTotalAmount) {
+                  return errorResponse(res, 'Insufficient wallet balance/credit limit', 400);
+                }
+                customer.walletBalance -= computedTotalAmount;
+            }
+            
+            customer.totalSpent += computedTotalAmount;
+            customer.totalOrders += 1;
+            customer.lastOrderDate = new Date();
+            await customer.save();
+        }
+    }
+
     const newSale = new Sale({
       saleNumber,
       items: normalizedItems,
@@ -87,10 +125,31 @@ exports.createSale = async (req, res) => {
       paymentStatus: paymentStatus || 'Paid',
       amountPaid: paidAmount,
       amountDue: amountDue,
-      dueDate: dueDate || null
+      dueDate: dueDate || null,
+      customerId: customerId || null
     });
 
     const savedSale = await newSale.save();
+
+    // Record Transaction
+    try {
+      const transactionController = require('./transaction.controller');
+      await transactionController.recordTransaction({
+        type: 'Sale',
+        amount: computedTotalAmount,
+        paymentMethod: paymentMethod,
+        status: 'Completed',
+        referenceId: savedSale._id,
+        referenceModel: 'Sale',
+        customerId: customerId || null,
+        processedBy: processedBy || 'System',
+        description: `Sale ${saleNumber}`
+      });
+    } catch (txnError) {
+      console.error('Failed to record transaction for sale:', txnError);
+      // We don't fail the sale if transaction recording fails, but we log it
+    }
+
     return successResponse(res, savedSale, 'Sale created successfully', 201);
   } catch (error) {
     return errorResponse(res, 'Failed to create sale', 400, error);
