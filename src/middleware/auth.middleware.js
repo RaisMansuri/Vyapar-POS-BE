@@ -14,8 +14,8 @@ const authMiddleware = (req, res, next) => {
     // Extract token
     const token = authHeader.split(' ')[1];
 
-    // Verify token (NO fallback secret)
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // Verify token (with fallback secret)
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret_key');
 
     // Attach user to request
     req.user = decoded;
@@ -30,3 +30,4 @@ const authMiddleware = (req, res, next) => {
 };
 
 module.exports = authMiddleware;
+module.exports.protect = authMiddleware;
