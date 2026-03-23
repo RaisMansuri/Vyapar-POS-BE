@@ -1,18 +1,22 @@
 const Sale = require('../models/sale.model');
 const Product = require('../models/product.model');
 const Customer = require('../models/customer.model');
-const mongoose = require('mongoose');
+const { Op, Sequelize } = require('sequelize');
 const { successResponse, errorResponse } = require('../utils/response');
 
 const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-// Helper to generate a unique sale number (e.g., SAL-20231027-001)
+// Helper to generate a unique sale number
 const generateSaleNumber = async () => {
   const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const count = await Sale.countDocuments({
-    timestamp: {
-      $gte: new Date(new Date().setHours(0, 0, 0, 0)),
-      $lt: new Date(new Date().setHours(23, 59, 59, 999))
+  const startOfDay = new Date(new Date().setHours(0, 0, 0, 0));
+  const endOfDay = new Date(new Date().setHours(23, 59, 59, 999));
+
+  const count = await Sale.count({
+    where: {
+      timestamp: {
+        [Op.between]: [startOfDay, endOfDay]
+      }
     }
   });
   return `SAL-${date}-${(count + 1).toString().padStart(3, '0')}`;
@@ -23,8 +27,11 @@ const resolveProductCategory = async (item) => {
     return item.category;
   }
 
-  if (item.productId && mongoose.isValidObjectId(String(item.productId))) {
-    const product = await Product.findById(item.productId).select('category').lean();
+  if (item.productId) {
+    const product = await Product.findByPk(item.productId, {
+      attributes: ['category'],
+      raw: true
+    });
     if (product?.category) {
       return product.category;
     }
@@ -32,8 +39,10 @@ const resolveProductCategory = async (item) => {
 
   if (item.name) {
     const product = await Product.findOne({
-      name: { $regex: `^${escapeRegex(item.name)}$`, $options: 'i' }
-    }).select('category').lean();
+      where: { name: { [Op.iLike]: item.name } },
+      attributes: ['category'],
+      raw: true
+    });
     if (product?.category) {
       return product.category;
     }
@@ -48,7 +57,7 @@ const normalizeSaleItems = async (items = []) => Promise.all(
     const price = Number(item.price || 0);
     const total = item.total !== undefined ? Number(item.total) : quantity * price;
 
-    const product = await Product.findById(item.productId).lean();
+    const product = await Product.findByPk(item.productId, { raw: true });
     const costPrice = product ? product.costPrice : (item.costPrice || 0);
 
     return {
@@ -83,15 +92,15 @@ exports.createSale = async (req, res) => {
     // Update inventory
     for (const item of normalizedItems) {
       if (item.productId) {
-        await Product.findByIdAndUpdate(item.productId, {
-          $inc: { stock: -item.quantity }
+        await Product.decrement({ stock: item.quantity }, {
+          where: { id: item.productId }
         });
       }
     }
 
     // CRM+ Integration: Loyalty Points & Wallet
     if (customerId) {
-        const customer = await Customer.findOne({ id: customerId });
+        const customer = await Customer.findByPk(customerId);
         if (customer) {
             // Accrue Loyalty Points (1 point per Rs 100)
             const pointsEarned = Math.floor(computedTotalAmount / 100);
@@ -99,21 +108,21 @@ exports.createSale = async (req, res) => {
             
             // Handle Wallet Payment
             if (paymentMethod === 'Wallet') {
-                const totalAvailable = (customer.walletBalance || 0) + (customer.creditLimit || 0);
+                const totalAvailable = Number(customer.walletBalance || 0) + Number(customer.creditLimit || 0);
                 if (totalAvailable < computedTotalAmount) {
                   return errorResponse(res, 'Insufficient wallet balance/credit limit', 400);
                 }
-                customer.walletBalance -= computedTotalAmount;
+                customer.walletBalance = Number(customer.walletBalance) - computedTotalAmount;
             }
             
-            customer.totalSpent += computedTotalAmount;
+            customer.totalSpent = Number(customer.totalSpent) + computedTotalAmount;
             customer.totalOrders += 1;
             customer.lastOrderDate = new Date();
             await customer.save();
         }
     }
 
-    const newSale = new Sale({
+    const savedSale = await Sale.create({
       saleNumber,
       items: normalizedItems,
       totalAmount: computedTotalAmount,
@@ -129,8 +138,6 @@ exports.createSale = async (req, res) => {
       customerId: customerId || null
     });
 
-    const savedSale = await newSale.save();
-
     // Record Transaction
     try {
       const transactionController = require('./transaction.controller');
@@ -139,7 +146,7 @@ exports.createSale = async (req, res) => {
         amount: computedTotalAmount,
         paymentMethod: paymentMethod,
         status: 'Completed',
-        referenceId: savedSale._id,
+        referenceId: savedSale.id,
         referenceModel: 'Sale',
         customerId: customerId || null,
         processedBy: processedBy || 'System',
@@ -147,7 +154,6 @@ exports.createSale = async (req, res) => {
       });
     } catch (txnError) {
       console.error('Failed to record transaction for sale:', txnError);
-      // We don't fail the sale if transaction recording fails, but we log it
     }
 
     return successResponse(res, savedSale, 'Sale created successfully', 201);
@@ -156,46 +162,50 @@ exports.createSale = async (req, res) => {
   }
 };
 
-// Get all sales (with simple filtering)
+// Get all sales
 exports.getSales = async (req, res) => {
   try {
     const { startDate, endDate, staff, paymentStatus, paymentMethod, category, product, search } = req.query;
-    let query = {};
+    const where = {};
 
     if (startDate && endDate) {
-      query.timestamp = { $gte: new Date(startDate), $lte: new Date(endDate) };
+      where.timestamp = { [Op.between]: [new Date(startDate), new Date(endDate)] };
     }
     if (staff) {
-      query.processedBy = staff;
+      where.processedBy = staff;
     }
 
     if (paymentStatus) {
-      query.paymentStatus = paymentStatus;
+      where.paymentStatus = paymentStatus;
     }
 
     if (paymentMethod) {
-      query.paymentMethod = paymentMethod;
+      where.paymentMethod = paymentMethod;
     }
 
     if (search) {
-      query.$or = [
-        { saleNumber: { $regex: escapeRegex(search), $options: 'i' } },
-        { processedBy: { $regex: escapeRegex(search), $options: 'i' } }
+      where[Op.or] = [
+        { saleNumber: { [Op.iLike]: `%${search}%` } },
+        { processedBy: { [Op.iLike]: `%${search}%` } }
       ];
     }
 
-    const itemMatch = {};
+    // JSONB filtering for Postgres
     if (category) {
-      itemMatch.category = { $regex: `^${escapeRegex(category)}$`, $options: 'i' };
+        where.items = {
+            [Op.contains]: [{ category }]
+        };
     }
     if (product) {
-      itemMatch.name = { $regex: escapeRegex(product), $options: 'i' };
-    }
-    if (Object.keys(itemMatch).length) {
-      query.items = { $elemMatch: itemMatch };
+        where.items = {
+            [Op.contains]: [{ name: product }]
+        };
     }
 
-    const sales = await Sale.find(query).sort({ timestamp: -1 });
+    const sales = await Sale.findAll({
+      where,
+      order: [['timestamp', 'DESC']]
+    });
     return successResponse(res, sales, 'Sales retrieved successfully');
   } catch (error) {
     return errorResponse(res, 'Failed to retrieve sales', 500, error);
@@ -205,11 +215,15 @@ exports.getSales = async (req, res) => {
 exports.getSaleById = async (req, res) => {
   try {
     const { id } = req.params;
-    const query = mongoose.isValidObjectId(id)
-      ? { $or: [{ _id: id }, { saleNumber: id }] }
+    
+    // Check if UUID or saleNumber
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    
+    const where = isUUID 
+      ? { [Op.or]: [{ id }, { saleNumber: id }] }
       : { saleNumber: id };
 
-    const sale = await Sale.findOne(query);
+    const sale = await Sale.findOne({ where });
     if (!sale) {
       return errorResponse(res, 'Sale not found', 404);
     }
@@ -223,86 +237,81 @@ exports.getSaleById = async (req, res) => {
 // Get sales report/stats
 exports.getSalesReport = async (req, res) => {
   try {
-    const stats = await Sale.aggregate([
-      {
-        $group: {
-          _id: "$processedBy",
-          totalSales: { $sum: 1 },
-          totalRevenue: { $sum: "$totalAmount" }
-        }
-      },
-      {
-        $project: {
-          staffName: "$_id",
-          totalSales: 1,
-          totalRevenue: 1,
-          _id: 0
-        }
-      }
-    ]);
+    const stats = await Sale.findAll({
+      attributes: [
+        ['processedBy', 'staffName'],
+        [Sequelize.fn('COUNT', Sequelize.col('id')), 'totalSales'],
+        [Sequelize.fn('SUM', Sequelize.col('totalAmount')), 'totalRevenue']
+      ],
+      group: ['processedBy'],
+      raw: true
+    });
 
-    const overall = await Sale.aggregate([
-      {
-        $group: {
-          _id: null,
-          totalTransactions: { $sum: 1 },
-          totalRevenue: { $sum: "$totalAmount" }
-        }
-      }
-    ]);
+    const overall = await Sale.findOne({
+      attributes: [
+        [Sequelize.fn('COUNT', Sequelize.col('id')), 'totalTransactions'],
+        [Sequelize.fn('SUM', Sequelize.col('totalAmount')), 'totalRevenue']
+      ],
+      raw: true
+    });
 
     return successResponse(res, {
       byStaff: stats,
-      overall: overall[0] || { totalTransactions: 0, totalRevenue: 0 }
+      overall: overall || { totalTransactions: 0, totalRevenue: 0 }
     }, 'Sales report retrieved successfully');
   } catch (error) {
     return errorResponse(res, 'Failed to retrieve sales report', 500, error);
   }
 };
+
 // Get general sales stats for dashboard
 exports.getSalesStats = async (req, res) => {
   try {
-    // Stats by day (last 7 days)
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-    const salesByDay = await Sale.aggregate([
-      { $match: { timestamp: { $gte: sevenDaysAgo } } },
-      {
-        $group: {
-          _id: { $dateToString: { format: "%Y-%m-%d", date: "$timestamp" } },
-          revenue: { $sum: "$totalAmount" },
-          count: { $sum: 1 }
-        }
-      },
-      { $sort: { "_id": 1 } }
-    ]);
+    const salesByDay = await Sale.findAll({
+      where: { timestamp: { [Op.gte]: sevenDaysAgo } },
+      attributes: [
+        [Sequelize.fn('DATE', Sequelize.col('timestamp')), 'day'],
+        [Sequelize.fn('SUM', Sequelize.col('totalAmount')), 'revenue'],
+        [Sequelize.fn('COUNT', Sequelize.col('id')), 'count']
+      ],
+      group: [Sequelize.fn('DATE', Sequelize.col('timestamp'))],
+      order: [[Sequelize.fn('DATE', Sequelize.col('timestamp')), 'ASC']],
+      raw: true
+    });
 
-    // Stats by category
-    const salesByCategory = await Sale.aggregate([
-      { $unwind: "$items" },
-      {
-        $group: {
-          _id: { $ifNull: ["$items.category", "Uncategorized"] },
-          value: { $sum: "$items.total" }
-        }
-      }
-    ]);
+    // Stats by category - Special handling for JSONB array
+    // This is more complex in Postgres/Sequelize without raw query
+    // We fetch and aggregate in JS for simplicity or use a raw query
+    const allSales = await Sale.findAll({
+      attributes: ['items'],
+      raw: true
+    });
 
-    const overall = await Sale.aggregate([
-      {
-        $group: {
-          _id: null,
-          totalOrders: { $sum: 1 },
-          totalRevenue: { $sum: '$totalAmount' }
-        }
-      }
-    ]);
+    const categoryStats = {};
+    allSales.forEach(sale => {
+      (sale.items || []).forEach(item => {
+        const cat = item.category || 'Uncategorized';
+        categoryStats[cat] = (categoryStats[cat] || 0) + Number(item.total || 0);
+      });
+    });
+
+    const salesByCategory = Object.entries(categoryStats).map(([name, value]) => ({ _id: name, value }));
+
+    const overall = await Sale.findOne({
+      attributes: [
+        [Sequelize.fn('COUNT', Sequelize.col('id')), 'totalOrders'],
+        [Sequelize.fn('SUM', Sequelize.col('totalAmount')), 'totalRevenue']
+      ],
+      raw: true
+    });
 
     return successResponse(res, {
-      byDay: salesByDay,
+      byDay: salesByDay.map(d => ({ _id: d.day, revenue: d.revenue, count: d.count })),
       byCategory: salesByCategory,
-      summary: overall[0] || { totalOrders: 0, totalRevenue: 0 }
+      summary: overall || { totalOrders: 0, totalRevenue: 0 }
     }, 'Sales stats retrieved successfully');
   } catch (error) {
     return errorResponse(res, 'Failed to retrieve sales stats', 500, error);
@@ -313,36 +322,34 @@ exports.getSalesStats = async (req, res) => {
 exports.getDailyReport = async (req, res) => {
   try {
     const { startDate, endDate, category, product, productId, paymentMethod, processedBy } = req.query;
-    const saleQuery = {};
+    const where = {};
 
     if (startDate || endDate) {
-      saleQuery.timestamp = {};
-      if (startDate) saleQuery.timestamp.$gte = new Date(startDate);
-      if (endDate) saleQuery.timestamp.$lte = new Date(endDate);
+      where.timestamp = {};
+      if (startDate) where.timestamp[Op.gte] = new Date(startDate);
+      if (endDate) where.timestamp[Op.lte] = new Date(endDate);
     }
 
-    if (paymentMethod) {
-      saleQuery.paymentMethod = paymentMethod;
-    }
+    if (paymentMethod) where.paymentMethod = paymentMethod;
+    if (processedBy) where.processedBy = processedBy;
 
-    if (processedBy) {
-      saleQuery.processedBy = processedBy;
-    }
+    const sales = await Sale.findAll({
+      where,
+      order: [['timestamp', 'DESC']],
+      raw: true
+    });
 
-    const sales = await Sale.find(saleQuery).sort({ timestamp: -1 }).lean();
     const reportMap = new Map();
 
     sales.forEach((sale) => {
       const matchingItems = (sale.items || []).filter((item) => {
         const categoryMatch = !category || String(item.category || '').toLowerCase() === String(category).toLowerCase();
         const productMatch = !product || String(item.name || '').toLowerCase().includes(String(product).toLowerCase());
-        const productIdMatch = !productId || String(item.productId) === String(productId);
-        return categoryMatch && productMatch && productIdMatch;
+        const prodIdMatch = !productId || String(item.productId) === String(productId);
+        return categoryMatch && productMatch && prodIdMatch;
       });
 
-      if (!matchingItems.length) {
-        return;
-      }
+      if (!matchingItems.length) return;
 
       const dayKey = new Date(sale.timestamp).toISOString().slice(0, 10);
       const matchedRevenue = matchingItems.reduce((sum, item) => sum + Number(item.total || 0), 0);

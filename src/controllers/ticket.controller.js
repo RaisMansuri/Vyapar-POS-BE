@@ -4,13 +4,12 @@ const { successResponse, errorResponse } = require('../utils/response');
 // Create Ticket
 exports.createTicket = async (req, res) => {
   try {
-    if (!req.body.id) {
-        const count = await Ticket.countDocuments();
-        req.body.id = `TKT-${(1001 + count).toString()}`;
+    if (!req.body.ticketId) {
+        const count = await Ticket.count();
+        req.body.ticketId = `TKT-${(1001 + count).toString()}`;
     }
-    const ticket = new Ticket(req.body);
-    const savedTicket = await ticket.save();
-    return successResponse(res, savedTicket, 'Ticket created successfully', 201);
+    const ticket = await Ticket.create(req.body);
+    return successResponse(res, ticket, 'Ticket created successfully', 201);
   } catch (error) {
     return errorResponse(res, 'Failed to create ticket', 400, error);
   }
@@ -19,7 +18,7 @@ exports.createTicket = async (req, res) => {
 // Get all Tickets
 exports.getTickets = async (req, res) => {
   try {
-    const tickets = await Ticket.find().sort({ createdAt: -1 });
+    const tickets = await Ticket.findAll({ order: [['createdAt', 'DESC']] });
     return successResponse(res, tickets, 'Tickets retrieved successfully');
   } catch (error) {
     return errorResponse(res, 'Failed to retrieve tickets', 500, error);
@@ -29,7 +28,7 @@ exports.getTickets = async (req, res) => {
 // Get Ticket by ID
 exports.getTicketById = async (req, res) => {
   try {
-    const ticket = await Ticket.findOne({ id: req.params.id });
+    const ticket = await Ticket.findByPk(req.params.id);
     if (!ticket) return errorResponse(res, 'Ticket not found', 404);
     return successResponse(res, ticket, 'Ticket retrieved successfully');
   } catch (error) {
@@ -41,13 +40,13 @@ exports.getTicketById = async (req, res) => {
 exports.updateTicketStatus = async (req, res) => {
   try {
     const { status } = req.body;
-    const ticket = await Ticket.findOneAndUpdate(
-        { id: req.params.id }, 
-        { status, updatedAt: new Date() }, 
-        { new: true }
+    const [updatedCount] = await Ticket.update(
+        { status }, 
+        { where: { id: req.params.id } }
     );
-    if (!ticket) return errorResponse(res, 'Ticket not found', 404);
-    return successResponse(res, ticket, 'Ticket status updated successfully');
+    if (updatedCount === 0) return errorResponse(res, 'Ticket not found', 404);
+    const updatedTicket = await Ticket.findByPk(req.params.id);
+    return successResponse(res, updatedTicket, 'Ticket status updated successfully');
   } catch (error) {
     return errorResponse(res, 'Failed to update ticket status', 400, error);
   }
@@ -57,12 +56,13 @@ exports.updateTicketStatus = async (req, res) => {
 exports.addComment = async (req, res) => {
   try {
     const { author, message } = req.body;
-    const ticket = await Ticket.findOne({ id: req.params.id });
+    const ticket = await Ticket.findByPk(req.params.id);
     if (!ticket) return errorResponse(res, 'Ticket not found', 404);
     
-    ticket.comments.push({ author, message });
-    const savedTicket = await ticket.save();
-    return successResponse(res, savedTicket, 'Comment added successfully', 201);
+    const comments = [...(ticket.comments || []), { author, message, timestamp: new Date() }];
+    await ticket.update({ comments });
+    
+    return successResponse(res, ticket, 'Comment added successfully', 201);
   } catch (error) {
     return errorResponse(res, 'Failed to add comment', 400, error);
   }
@@ -71,8 +71,8 @@ exports.addComment = async (req, res) => {
 // Delete Ticket
 exports.deleteTicket = async (req, res) => {
   try {
-    const ticket = await Ticket.findOneAndDelete({ id: req.params.id });
-    if (!ticket) return errorResponse(res, 'Ticket not found', 404);
+    const deletedCount = await Ticket.destroy({ where: { id: req.params.id } });
+    if (deletedCount === 0) return errorResponse(res, 'Ticket not found', 404);
     return successResponse(res, null, 'Ticket deleted successfully');
   } catch (error) {
     return errorResponse(res, 'Failed to delete ticket', 500, error);

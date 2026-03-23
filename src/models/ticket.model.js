@@ -1,56 +1,48 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/db.config');
 
-const CommentSchema = new mongoose.Schema({
-  author: {
-    type: String,
-    required: true
-  },
-  message: {
-    type: String,
-    required: true
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now
-  }
-});
-
-const TicketSchema = new mongoose.Schema({
+const Ticket = sequelize.define('Ticket', {
   id: {
-    type: String,
-    required: true,
+    type: DataTypes.UUID,
+    defaultValue: DataTypes.UUIDV4,
+    primaryKey: true
+  },
+  ticketId: {
+    type: DataTypes.STRING,
+    allowNull: false,
     unique: true
   },
   subject: {
-    type: String,
-    required: true
-  },
-  description: {
-    type: String,
-    required: true
-  },
-  status: {
-    type: String,
-    enum: ['Open', 'In Progress', 'Resolved', 'Closed'],
-    default: 'Open'
-  },
-  priority: {
-    type: String,
-    enum: ['Low', 'Medium', 'High', 'Critical'],
-    default: 'Medium'
+    type: DataTypes.STRING,
+    allowNull: false
   },
   customerName: {
-    type: String
+    type: DataTypes.STRING,
+    allowNull: true
   },
   customerEmail: {
-    type: String
+    type: DataTypes.STRING,
+    allowNull: true
   },
-  assignedTo: {
-    type: String
+  description: {
+    type: DataTypes.TEXT,
+    allowNull: true
   },
-  comments: [CommentSchema]
+  status: {
+    type: DataTypes.ENUM('Open', 'In Progress', 'Resolved', 'Closed'),
+    defaultValue: 'Open'
+  },
+  priority: {
+    type: DataTypes.ENUM('Low', 'Medium', 'High', 'Urgent'),
+    defaultValue: 'Medium'
+  },
+  comments: {
+    type: DataTypes.JSONB,
+    allowNull: false,
+    defaultValue: []
+  }
 }, {
   timestamps: true
 });
 
-module.exports = mongoose.model('Ticket', TicketSchema);
+module.exports = Ticket;

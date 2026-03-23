@@ -1,58 +1,72 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/db.config');
 const bcrypt = require('bcryptjs');
 
-const UserSchema = new mongoose.Schema({
+const User = sequelize.define('User', {
+  id: {
+    type: DataTypes.UUID,
+    defaultValue: DataTypes.UUIDV4,
+    primaryKey: true
+  },
   name: {
-    type: String,
-    required: true
+    type: DataTypes.STRING,
+    allowNull: false
   },
   email: {
-    type: String,
-    required: true,
-    unique: true
+    type: DataTypes.STRING,
+    allowNull: false,
+    unique: true,
+    validate: {
+      isEmail: true
+    }
   },
   password: {
-    type: String,
-    required: true
+    type: DataTypes.STRING,
+    allowNull: false
   },
   phone: {
-    type: String
+    type: DataTypes.STRING,
+    allowNull: true
   },
   role: {
-    type: String,
-    enum: ['Admin', 'Staff'],
-    default: 'Admin'
+    type: DataTypes.ENUM('Admin', 'Staff'),
+    defaultValue: 'Admin'
   },
   isVerified: {
-    type: Boolean,
-    default: false
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
   },
   verificationToken: {
-    type: String
+    type: DataTypes.STRING,
+    allowNull: true
   },
   verificationTokenExpires: {
-    type: Date
+    type: DataTypes.DATE,
+    allowNull: true
   },
   resetPasswordToken: {
-    type: String
+    type: DataTypes.STRING,
+    allowNull: true
   },
   resetPasswordExpires: {
-    type: Date
+    type: DataTypes.DATE,
+    allowNull: true
   }
 }, {
-  timestamps: true
+  timestamps: true,
+  hooks: {
+    beforeSave: async (user) => {
+      if (user.changed('password')) {
+        const salt = await bcrypt.genSalt(10);
+        user.password = await bcrypt.hash(user.password, salt);
+      }
+    }
+  }
 });
 
-// Hash password before saving
-UserSchema.pre('save', async function () {
-  if (!this.isModified('password')) return;
-  const salt = await bcrypt.genSalt(10);
-  this.password = await bcrypt.hash(this.password, salt);
-});
-
-// Method to compare passwords
-UserSchema.methods.comparePassword = async function (candidatePassword) {
+// Instance method to compare passwords
+User.prototype.comparePassword = async function (candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
 };
 
-module.exports = mongoose.model('User', UserSchema);
+module.exports = User;

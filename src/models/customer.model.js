@@ -1,53 +1,47 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/db.config');
 
-const CustomerSchema = new mongoose.Schema({
+const Customer = sequelize.define('Customer', {
   id: {
-    type: String,
-    required: true,
-    unique: true
+    type: DataTypes.UUID,
+    defaultValue: DataTypes.UUIDV4,
+    primaryKey: true
   },
   name: {
-    type: String,
-    required: true
+    type: DataTypes.STRING,
+    allowNull: false
   },
   email: {
-    type: String
+    type: DataTypes.STRING,
+    allowNull: true,
+    unique: true,
+    validate: {
+      isEmail: true
+    }
   },
   phone: {
-    type: String,
-    required: true
-  },
-  address: {
-    type: String
-  },
-  totalOrders: {
-    type: Number,
-    default: 0
+    type: DataTypes.STRING,
+    allowNull: true,
+    unique: true
   },
   totalSpent: {
-    type: Number,
-    default: 0
+    type: DataTypes.DECIMAL(10, 2),
+    defaultValue: 0
   },
-  lastOrderDate: {
-    type: Date
-  },
-  notes: {
-    type: String
-  },
-  loyaltyPoints: {
-    type: Number,
-    default: 0
+  totalOrders: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0
   },
   walletBalance: {
-    type: Number,
-    default: 0
+    type: DataTypes.DECIMAL(10, 2),
+    defaultValue: 0
   },
-  creditLimit: {
-    type: Number,
-    default: 0
+  address: {
+    type: DataTypes.TEXT,
+    allowNull: true
   }
 }, {
   timestamps: true
 });
 
-module.exports = mongoose.model('Customer', CustomerSchema);
+module.exports = Customer;

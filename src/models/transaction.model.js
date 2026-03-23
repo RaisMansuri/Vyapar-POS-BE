@@ -1,66 +1,63 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/db.config');
 
-const TransactionSchema = new mongoose.Schema({
+const Transaction = sequelize.define('Transaction', {
+  id: {
+    type: DataTypes.UUID,
+    defaultValue: DataTypes.UUIDV4,
+    primaryKey: true
+  },
   transactionId: {
-    type: String,
-    required: true,
+    type: DataTypes.STRING,
+    allowNull: false,
     unique: true
   },
   type: {
-    type: String,
-    enum: ['Sale', 'Expense', 'Refund', 'Wallet Top-up'],
-    required: true
+    type: DataTypes.ENUM('Sale', 'Expense', 'Refund', 'Wallet Top-up'),
+    allowNull: false
   },
   amount: {
-    type: Number,
-    required: true
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: false
   },
   paymentMethod: {
-    type: String,
-    enum: ['Cash', 'Card', 'UPI', 'Wallet', 'Mixed'],
-    required: true
+    type: DataTypes.ENUM('Cash', 'Card', 'UPI', 'Wallet', 'Mixed'),
+    allowNull: false
   },
   status: {
-    type: String,
-    enum: ['Completed', 'Pending', 'Failed', 'Cancelled'],
-    default: 'Completed'
+    type: DataTypes.ENUM('Completed', 'Pending', 'Failed', 'Cancelled'),
+    defaultValue: 'Completed'
   },
   referenceId: {
-    type: mongoose.Schema.Types.ObjectId,
-    required: true,
-    refPath: 'referenceModel'
+    type: DataTypes.UUID,
+    allowNull: false
   },
   referenceModel: {
-    type: String,
-    required: true,
-    enum: ['Sale', 'Expense']
+    type: DataTypes.STRING,
+    allowNull: false
   },
   customerId: {
-    type: String, // String ID used in this project
-    default: null
+    type: DataTypes.STRING,
+    allowNull: true
   },
   customerName: {
-    type: String,
-    default: null
+    type: DataTypes.STRING,
+    allowNull: true
   },
   processedBy: {
-    type: String,
-    default: 'System'
+    type: DataTypes.STRING,
+    defaultValue: 'System'
   },
   description: {
-    type: String
+    type: DataTypes.TEXT,
+    allowNull: true
   },
   timestamp: {
-    type: Date,
-    default: Date.now
+    type: DataTypes.DATE,
+    defaultValue: DataTypes.NOW
   }
 }, {
   timestamps: true
 });
 
-// Index for faster lookups
-TransactionSchema.index({ timestamp: -1 });
-TransactionSchema.index({ type: 1 });
-TransactionSchema.index({ transactionId: 1 });
-
-module.exports = mongoose.model('Transaction', TransactionSchema);
+module.exports = Transaction;

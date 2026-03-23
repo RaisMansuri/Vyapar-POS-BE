@@ -2,7 +2,7 @@ const User = require('../models/user.model');
 const { successResponse, errorResponse } = require('../utils/response');
 
 const sanitizeUser = (user) => ({
-  id: user._id,
+  id: user.id || user._id,
   name: user.name,
   email: user.email,
   phone: user.phone,
@@ -20,12 +20,12 @@ exports.createUser = async (req, res) => {
       return errorResponse(res, 'Name, email, and password are required', 400);
     }
 
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({ where: { email } });
     if (existingUser) {
       return errorResponse(res, 'User already exists', 400);
     }
 
-    const user = new User({
+    const user = await User.create({
       name,
       email,
       password,
@@ -33,8 +33,6 @@ exports.createUser = async (req, res) => {
       role: role || 'Staff',
       isVerified: typeof isVerified === 'boolean' ? isVerified : true
     });
-
-    await user.save();
 
     return successResponse(res, sanitizeUser(user), 'User created successfully', 201);
   } catch (error) {
@@ -45,21 +43,26 @@ exports.createUser = async (req, res) => {
 exports.getUsers = async (req, res) => {
   try {
     const { role, search } = req.query;
-    const query = {};
+    const where = {};
 
     if (role) {
-      query.role = role;
+      where.role = role;
     }
 
     if (search) {
-      query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { phone: { $regex: search, $options: 'i' } }
+      const { Op } = require('sequelize');
+      where[Op.or] = [
+        { name: { [Op.iLike]: `%${search}%` } },
+        { email: { [Op.iLike]: `%${search}%` } },
+        { phone: { [Op.iLike]: `%${search}%` } }
       ];
     }
 
-    const users = await User.find(query).select('-password').sort({ createdAt: -1 });
+    const users = await User.findAll({
+      where,
+      attributes: { exclude: ['password'] },
+      order: [['createdAt', 'DESC']]
+    });
     return successResponse(res, users, 'Users retrieved successfully');
   } catch (error) {
     return errorResponse(res, 'Failed to retrieve users', 500, error);
@@ -68,7 +71,9 @@ exports.getUsers = async (req, res) => {
 
 exports.getUserById = async (req, res) => {
   try {
-    const user = await User.findById(req.params.id).select('-password');
+    const user = await User.findByPk(req.params.id, {
+      attributes: { exclude: ['password'] }
+    });
     if (!user) {
       return errorResponse(res, 'User not found', 404);
     }
@@ -82,14 +87,14 @@ exports.getUserById = async (req, res) => {
 exports.updateUser = async (req, res) => {
   try {
     const { name, email, password, phone, role, isVerified } = req.body;
-    const user = await User.findById(req.params.id);
+    const user = await User.findByPk(req.params.id);
 
     if (!user) {
       return errorResponse(res, 'User not found', 404);
     }
 
     if (email && email !== user.email) {
-      const existingUser = await User.findOne({ email });
+      const existingUser = await User.findOne({ where: { email } });
       if (existingUser) {
         return errorResponse(res, 'Email is already in use', 400);
       }
@@ -112,8 +117,8 @@ exports.updateUser = async (req, res) => {
 
 exports.deleteUser = async (req, res) => {
   try {
-    const user = await User.findByIdAndDelete(req.params.id);
-    if (!user) {
+    const deletedCount = await User.destroy({ where: { id: req.params.id } });
+    if (deletedCount === 0) {
       return errorResponse(res, 'User not found', 404);
     }
 
@@ -125,7 +130,9 @@ exports.deleteUser = async (req, res) => {
 
 exports.getCurrentUser = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('-password');
+    const user = await User.findByPk(req.user.id, {
+      attributes: { exclude: ['password'] }
+    });
     if (!user) {
       return errorResponse(res, 'User not found', 404);
     }
@@ -139,7 +146,7 @@ exports.getCurrentUser = async (req, res) => {
 exports.updateCurrentUser = async (req, res) => {
   try {
     const { name, phone, password } = req.body;
-    const user = await User.findById(req.user.id);
+    const user = await User.findByPk(req.user.id);
 
     if (!user) {
       return errorResponse(res, 'User not found', 404);

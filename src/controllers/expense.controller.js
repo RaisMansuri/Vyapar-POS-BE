@@ -1,4 +1,5 @@
 const Expense = require('../models/expense.model');
+const { Op, Sequelize } = require('sequelize');
 const { successResponse, errorResponse } = require('../utils/response');
 
 // Create a new expense
@@ -6,7 +7,7 @@ exports.createExpense = async (req, res) => {
   try {
     const { title, amount, category, date, description, paidBy } = req.body;
 
-    const newExpense = new Expense({
+    const savedExpense = await Expense.create({
       title,
       amount,
       category,
@@ -15,17 +16,15 @@ exports.createExpense = async (req, res) => {
       paidBy: paidBy || req.user?.name || 'Admin'
     });
 
-    const savedExpense = await newExpense.save();
-
     // Record Transaction
     try {
       const transactionController = require('./transaction.controller');
       await transactionController.recordTransaction({
         type: 'Expense',
         amount: amount,
-        paymentMethod: 'Cash', // Default for expenses in this project
+        paymentMethod: 'Cash',
         status: 'Completed',
-        referenceId: savedExpense._id,
+        referenceId: savedExpense.id,
         referenceModel: 'Expense',
         processedBy: paidBy || 'Admin',
         description: `Expense: ${title}`
@@ -44,26 +43,29 @@ exports.createExpense = async (req, res) => {
 exports.getExpenses = async (req, res) => {
   try {
     const { startDate, endDate, category, search } = req.query;
-    let query = {};
+    const where = {};
 
     if (startDate || endDate) {
-      query.date = {};
-      if (startDate) query.date.$gte = new Date(startDate);
-      if (endDate) query.date.$lte = new Date(endDate);
+      const start = startDate ? new Date(startDate) : new Date(0);
+      const end = endDate ? new Date(endDate) : new Date();
+      where.date = { [Op.between]: [start, end] };
     }
 
     if (category) {
-      query.category = category;
+      where.category = category;
     }
 
     if (search) {
-      query.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } }
+      where[Op.or] = [
+        { title: { [Op.iLike]: `%${search}%` } },
+        { description: { [Op.iLike]: `%${search}%` } }
       ];
     }
 
-    const expenses = await Expense.find(query).sort({ date: -1 });
+    const expenses = await Expense.findAll({
+      where,
+      order: [['date', 'DESC']]
+    });
     return successResponse(res, expenses, 'Expenses retrieved successfully');
   } catch (error) {
     return errorResponse(res, 'Failed to retrieve expenses', 500, error);
@@ -74,12 +76,15 @@ exports.getExpenses = async (req, res) => {
 exports.updateExpense = async (req, res) => {
   try {
     const { id } = req.params;
-    const updatedExpense = await Expense.findByIdAndUpdate(id, req.body, { new: true });
+    const [updatedCount] = await Expense.update(req.body, {
+      where: { id }
+    });
     
-    if (!updatedExpense) {
+    if (updatedCount === 0) {
       return errorResponse(res, 'Expense not found', 404);
     }
 
+    const updatedExpense = await Expense.findByPk(id);
     return successResponse(res, updatedExpense, 'Expense updated successfully');
   } catch (error) {
     return errorResponse(res, 'Failed to update expense', 400, error);
@@ -90,9 +95,9 @@ exports.updateExpense = async (req, res) => {
 exports.deleteExpense = async (req, res) => {
   try {
     const { id } = req.params;
-    const deletedExpense = await Expense.findByIdAndDelete(id);
+    const deletedCount = await Expense.destroy({ where: { id } });
 
-    if (!deletedExpense) {
+    if (deletedCount === 0) {
       return errorResponse(res, 'Expense not found', 404);
     }
 
@@ -106,38 +111,36 @@ exports.deleteExpense = async (req, res) => {
 exports.getExpenseStats = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    let matchQuery = {};
+    const where = {};
 
     if (startDate || endDate) {
-      matchQuery.date = {};
-      if (startDate) matchQuery.date.$gte = new Date(startDate);
-      if (endDate) matchQuery.date.$lte = new Date(endDate);
+      const start = startDate ? new Date(startDate) : new Date(0);
+      const end = endDate ? new Date(endDate) : new Date();
+      where.date = { [Op.between]: [start, end] };
     }
 
-    const stats = await Expense.aggregate([
-      { $match: matchQuery },
-      {
-        $group: {
-          _id: "$category",
-          total: { $sum: "$amount" },
-          count: { $sum: 1 }
-        }
-      }
-    ]);
+    const stats = await Expense.findAll({
+      where,
+      attributes: [
+        ['category', '_id'],
+        [Sequelize.fn('SUM', Sequelize.col('amount')), 'total'],
+        [Sequelize.fn('COUNT', Sequelize.col('id')), 'count']
+      ],
+      group: ['category'],
+      raw: true
+    });
 
-    const overall = await Expense.aggregate([
-      { $match: matchQuery },
-      {
-        $group: {
-          _id: null,
-          totalExpenses: { $sum: "$amount" }
-        }
-      }
-    ]);
+    const overall = await Expense.findOne({
+      where,
+      attributes: [
+        [Sequelize.fn('SUM', Sequelize.col('amount')), 'totalExpenses']
+      ],
+      raw: true
+    });
 
     return successResponse(res, {
       byCategory: stats,
-      total: overall[0]?.totalExpenses || 0
+      total: overall?.totalExpenses || 0
     }, 'Expense statistics retrieved successfully');
   } catch (error) {
     return errorResponse(res, 'Failed to retrieve expense stats', 500, error);

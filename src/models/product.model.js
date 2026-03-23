@@ -1,58 +1,50 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/db.config');
 
-const ProductSchema = new mongoose.Schema({
-  barcode: {
-    type: String,
-    required: true,
-    unique: true
+const Product = sequelize.define('Product', {
+  id: {
+    type: DataTypes.UUID,
+    defaultValue: DataTypes.UUIDV4,
+    primaryKey: true
   },
   name: {
-    type: String,
-    required: true
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  barcode: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    unique: true
   },
   price: {
-    type: Number,
-    required: true
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: false,
+    defaultValue: 0
   },
   costPrice: {
-    type: Number,
-    required: true
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: false,
+    defaultValue: 0
   },
   stock: {
-    type: Number,
-    default: 0
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 0
   },
   minStockLevel: {
-    type: Number,
-    default: 5
-  },
-  description: {
-    type: String
-  },
-  imageUrl: {
-    type: String
+    type: DataTypes.INTEGER,
+    defaultValue: 10
   },
   category: {
-    type: String,
-    required: true
+    type: DataTypes.STRING,
+    allowNull: true
   },
-  gstRate: {
-    type: Number,
-    default: 0
-  },
-  discount: {
-    type: {
-      type: String,
-      enum: ['daily', 'seasonal', 'fixed', 'none'],
-      default: 'none'
-    },
-    value: {
-      type: Number,
-      default: 0
-    }
+  imageUrl: {
+    type: DataTypes.STRING,
+    allowNull: true
   }
 }, {
   timestamps: true
 });
 
-module.exports = mongoose.model('Product', ProductSchema);
+module.exports = Product;

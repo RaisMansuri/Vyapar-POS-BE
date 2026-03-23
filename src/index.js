@@ -2,11 +2,12 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
-const mongoose = require('mongoose');
+const { connectPostgres } = require('./config/db.config');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./config/swagger.config');
 
 const app = express();
+
 
 /* =======================
    ✅ CORS CONFIGURATION
@@ -31,7 +32,7 @@ app.use(morgan('dev'));
    ✅ ROOT ROUTE
 ======================= */
 app.get('/', (req, res) => {
-  res.send('POS Backend Running 🚀');
+  res.send('POS Backend Running 🚀 (PostgreSQL Mode)');
 });
 
 /* =======================
@@ -40,7 +41,7 @@ app.get('/', (req, res) => {
 app.get('/api/health', (req, res) => {
   res.status(200).json({
     status: 'OK',
-    message: 'Backend server is running'
+    message: 'Backend server is running with PostgreSQL'
   });
 });
 
@@ -59,26 +60,26 @@ app.use('/api/customers', require('./routes/customer.routes'));
 app.use('/api/tickets', require('./routes/ticket.routes'));
 app.use('/api/users', require('./routes/user.routes'));
 app.use('/api/expenses', require('./routes/expense.routes'));
+app.use('/api/categories', require('./routes/category.routes'));
 app.use('/api/reports', require('./routes/report.routes'));
 app.use('/api/marketing', require('./routes/marketing.routes'));
 app.use('/api/transactions', require('./routes/transaction.routes'));
+app.use('/api/ai', require('./routes/ai.routes'));
 
 /* =======================
-   ✅ MONGODB CONNECTION (SERVERLESS SAFE)
+   ✅ POSTGRESQL CONNECTION
 ======================= */
 let isConnected = false;
 
-async function connectDB() {
+async function startServer() {
   if (isConnected) return;
 
   try {
-    const db = await mongoose.connect(process.env.MONGODB_URI);
-
-    isConnected = db.connections[0].readyState;
-    console.log('MongoDB Connected');
+    await connectPostgres();
+    isConnected = true;
   } catch (error) {
-    console.error('MongoDB connection error:', error);
-    throw error;
+    console.error('Database connection failed:', error);
+    process.exit(1);
   }
 }
 
@@ -89,9 +90,8 @@ const PORT = process.env.PORT || 5000;
 
 if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, async () => {
-    await connectDB();
+    await startServer();
     console.log(`🚀 Server running on http://localhost:${PORT}`);
-    console.log('✅ MongoDB Connection process initiated...');
   });
 }
 
@@ -99,6 +99,6 @@ if (process.env.NODE_ENV !== 'production') {
    ✅ EXPORT FOR VERCEL
 ======================= */
 module.exports = async (req, res) => {
-  await connectDB();
+  await startServer();
   return app(req, res);
 };

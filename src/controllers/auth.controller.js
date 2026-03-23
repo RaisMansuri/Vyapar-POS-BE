@@ -1,4 +1,5 @@
 const User = require('../models/user.model');
+const { Op } = require('sequelize');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { successResponse, errorResponse } = require('../utils/response');
@@ -10,7 +11,7 @@ const register = async (req, res) => {
     const { name, email, password, phone } = req.body;
 
     // Check if user already exists
-    const userExists = await User.findOne({ email });
+    const userExists = await User.findOne({ where: { email } });
     if (userExists) {
       return errorResponse(res, 'User already exists', 400);
     }
@@ -20,17 +21,13 @@ const register = async (req, res) => {
     const verificationTokenExpires = Date.now() + 120 * 60 * 1000; // 120 minutes
 
     // Create new user
-    const user = new User({
+    const user = await User.create({
       name,
       email,
       password,
       phone,
-      verificationToken: undefined,
-      verificationTokenExpires: undefined,
-      isVerified: true // Direct login allowed, verification skipped or handled via welcome email
+      isVerified: true 
     });
-
-    await user.save();
 
     // Send verification email using template
     const emailHtml = getVerificationTemplate(name, otp);
@@ -47,14 +44,14 @@ const register = async (req, res) => {
     }
 
     // Generate token for direct login
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET || 'secret_key', {
+    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET || 'secret_key', {
       expiresIn: '24h'
     });
 
     return successResponse(res, {
       token,
       user: {
-        id: user._id,
+        id: user.id,
         name: user.name,
         email: user.email,
         role: user.role,
@@ -77,9 +74,11 @@ const verifyOTP = async (req, res) => {
     }
 
     const user = await User.findOne({
-      email,
-      verificationToken: verificationCode,
-      verificationTokenExpires: { $gt: Date.now() }
+      where: {
+        email,
+        verificationToken: verificationCode,
+        verificationTokenExpires: { [Op.gt]: new Date() }
+      }
     });
 
     if (!user) {
@@ -105,7 +104,7 @@ const resendVerification = async (req, res) => {
       return errorResponse(res, 'Email is required', 400);
     }
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ where: { email } });
 
     if (!user) {
       return errorResponse(res, 'User not found', 404);
@@ -146,7 +145,7 @@ const login = async (req, res) => {
     const { email, password } = req.body;
 
     // Find user by email
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ where: { email } });
     if (!user) {
       return errorResponse(res, 'Invalid credentials', 400);
     }
@@ -163,14 +162,14 @@ const login = async (req, res) => {
     }
 
     // Generate token
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET || 'secret_key', {
+    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET || 'secret_key', {
       expiresIn: '24h'
     });
 
     return successResponse(res, {
       token,
       user: {
-        id: user._id,
+        id: user.id,
         name: user.name,
         email: user.email,
         role: user.role,
@@ -184,7 +183,9 @@ const login = async (req, res) => {
 
 const getProfile = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('-password');
+    const user = await User.findByPk(req.user.id, {
+      attributes: { exclude: ['password'] }
+    });
     if (!user) return errorResponse(res, 'User not found', 404);
     return successResponse(res, user, 'Profile retrieved successfully');
   } catch (error) {
@@ -195,7 +196,7 @@ const getProfile = async (req, res) => {
 const updateProfile = async (req, res) => {
   try {
     const { name, phone } = req.body;
-    const user = await User.findById(req.user.id);
+    const user = await User.findByPk(req.user.id);
     
     if (!user) return errorResponse(res, 'User not found', 404);
 
@@ -205,7 +206,7 @@ const updateProfile = async (req, res) => {
     await user.save();
 
     return successResponse(res, {
-      id: user._id,
+      id: user.id,
       name: user.name,
       email: user.email,
       phone: user.phone,
@@ -221,7 +222,7 @@ const forgotPassword = async (req, res) => {
     const { email } = req.body;
     if (!email) return errorResponse(res, 'Email is required', 400);
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ where: { email } });
     if (!user) return errorResponse(res, 'User not found', 404);
 
     // Generate 6-digit OTP
@@ -258,9 +259,11 @@ const resetPassword = async (req, res) => {
     }
 
     const user = await User.findOne({
-      email,
-      resetPasswordToken: otp,
-      resetPasswordExpires: { $gt: Date.now() }
+      where: {
+        email,
+        resetPasswordToken: otp,
+        resetPasswordExpires: { [Op.gt]: new Date() }
+      }
     });
 
     if (!user) {

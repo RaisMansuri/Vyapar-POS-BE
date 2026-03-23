@@ -1,67 +1,52 @@
 const Sale = require('../models/sale.model');
 const Expense = require('../models/expense.model');
+const { Op } = require('sequelize');
 const { successResponse, errorResponse } = require('../utils/response');
 
 exports.getProfitLoss = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    let saleMatch = {};
-    let expenseMatch = {};
+    const saleWhere = {};
+    const expenseWhere = {};
 
     if (startDate || endDate) {
-      saleMatch.timestamp = {};
-      expenseMatch.date = {};
-      if (startDate) {
-        saleMatch.timestamp.$gte = new Date(startDate);
-        expenseMatch.date.$gte = new Date(startDate);
-      }
-      if (endDate) {
-        saleMatch.timestamp.$lte = new Date(endDate);
-        expenseMatch.date.$lte = new Date(endDate);
-      }
+      const start = startDate ? new Date(startDate) : new Date(0);
+      const end = endDate ? new Date(endDate) : new Date();
+      saleWhere.timestamp = { [Op.between]: [start, end] };
+      expenseWhere.date = { [Op.between]: [start, end] };
     }
 
-    // Aggregate Sales Data (Revenue & COGS)
-    const salesData = await Sale.aggregate([
-      { $match: saleMatch },
-      {
-        $group: {
-          _id: null,
-          revenue: { $sum: "$totalAmount" },
-          cogs: {
-            $sum: {
-              $reduce: {
-                input: "$items",
-                initialValue: 0,
-                in: { $add: ["$$value", { $multiply: ["$$this.quantity", "$$this.costPrice"] }] }
-              }
-            }
-          },
-          taxAmount: { $sum: "$tax" },
-          discountAmount: { $sum: "$discount" }
-        }
-      }
-    ]);
+    // Fetch Sales for calculation
+    const sales = await Sale.findAll({ where: saleWhere, raw: true });
+    
+    let revenue = 0;
+    let cogs = 0;
+    let taxAmount = 0;
+    let discountAmount = 0;
 
-    // Aggregate Expenses Data
-    const expensesData = await Expense.aggregate([
-      { $match: expenseMatch },
-      {
-        $group: {
-          _id: null,
-          totalExpenses: { $sum: "$amount" }
-        }
-      }
-    ]);
+    sales.forEach(sale => {
+        revenue += Number(sale.totalAmount || 0);
+        taxAmount += Number(sale.tax || 0);
+        discountAmount += Number(sale.discount || 0);
+        
+        const items = Array.isArray(sale.items) ? sale.items : [];
+        items.forEach(item => {
+            cogs += Number(item.quantity || 0) * Number(item.costPrice || 0);
+        });
+    });
+
+    // Fetch Expenses
+    const expenses = await Expense.findAll({ where: expenseWhere, raw: true });
+    const totalExpenses = expenses.reduce((sum, exp) => sum + Number(exp.amount || 0), 0);
 
     const stats = {
-      revenue: salesData[0]?.revenue || 0,
-      cogs: salesData[0]?.cogs || 0,
-      grossProfit: (salesData[0]?.revenue || 0) - (salesData[0]?.cogs || 0),
-      totalExpenses: expensesData[0]?.totalExpenses || 0,
-      netProfit: ((salesData[0]?.revenue || 0) - (salesData[0]?.cogs || 0)) - (expensesData[0]?.totalExpenses || 0),
-      tax: salesData[0]?.taxAmount || 0,
-      discount: salesData[0]?.discountAmount || 0
+      revenue,
+      cogs,
+      grossProfit: revenue - cogs,
+      totalExpenses,
+      netProfit: (revenue - cogs) - totalExpenses,
+      tax: taxAmount,
+      discount: discountAmount
     };
 
     return successResponse(res, stats, 'P&L report generated successfully');
