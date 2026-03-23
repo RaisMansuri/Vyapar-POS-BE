@@ -59,6 +59,10 @@ const User = sequelize.define('User', {
   aiModel: {
     type: DataTypes.STRING,
     allowNull: true
+  },
+  upiId: {
+    type: DataTypes.STRING,
+    allowNull: true
   }
 }, {
   timestamps: true,

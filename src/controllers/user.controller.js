@@ -10,6 +10,7 @@ const sanitizeUser = (user) => ({
   isVerified: user.isVerified,
   aiApiKey: user.aiApiKey,
   aiModel: user.aiModel,
+  upiId: user.upiId,
   createdAt: user.createdAt,
   updatedAt: user.updatedAt
 });
@@ -159,6 +160,7 @@ exports.updateCurrentUser = async (req, res) => {
     if (password) user.password = password;
     if (req.body.aiApiKey !== undefined) user.aiApiKey = req.body.aiApiKey;
     if (req.body.aiModel !== undefined) user.aiModel = req.body.aiModel;
+    if (req.body.upiId !== undefined) user.upiId = req.body.upiId;
 
     await user.save();
 

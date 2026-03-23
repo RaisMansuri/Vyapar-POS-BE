@@ -13,5 +13,6 @@ router.use(authMiddleware);
  *     tags: [AI]
  */
 router.post('/chat', AiController.chat);
+router.post('/send-invoice', AiController.sendInvoice);
 
 module.exports = router;
