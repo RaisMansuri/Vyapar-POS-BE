@@ -8,6 +8,8 @@ const sanitizeUser = (user) => ({
   phone: user.phone,
   role: user.role,
   isVerified: user.isVerified,
+  aiApiKey: user.aiApiKey,
+  aiModel: user.aiModel,
   createdAt: user.createdAt,
   updatedAt: user.updatedAt
 });
@@ -155,6 +157,8 @@ exports.updateCurrentUser = async (req, res) => {
     if (name !== undefined) user.name = name;
     if (phone !== undefined) user.phone = phone;
     if (password) user.password = password;
+    if (req.body.aiApiKey !== undefined) user.aiApiKey = req.body.aiApiKey;
+    if (req.body.aiModel !== undefined) user.aiModel = req.body.aiModel;
 
     await user.save();
 

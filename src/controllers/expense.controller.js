@@ -13,7 +13,8 @@ exports.createExpense = async (req, res) => {
       category,
       date: date || new Date(),
       description,
-      paidBy: paidBy || req.user?.name || 'Admin'
+      paidBy: paidBy || req.user?.name || 'Admin',
+      userId: req.user.id
     });
 
     // Record Transaction
@@ -27,7 +28,8 @@ exports.createExpense = async (req, res) => {
         referenceId: savedExpense.id,
         referenceModel: 'Expense',
         processedBy: paidBy || 'Admin',
-        description: `Expense: ${title}`
+        description: `Expense: ${title}`,
+        userId: req.user.id
       });
     } catch (txnError) {
       console.error('Failed to record transaction for expense:', txnError);
@@ -43,7 +45,7 @@ exports.createExpense = async (req, res) => {
 exports.getExpenses = async (req, res) => {
   try {
     const { startDate, endDate, category, search } = req.query;
-    const where = {};
+    const where = { userId: req.user.id };
 
     if (startDate || endDate) {
       const start = startDate ? new Date(startDate) : new Date(0);
@@ -77,14 +79,16 @@ exports.updateExpense = async (req, res) => {
   try {
     const { id } = req.params;
     const [updatedCount] = await Expense.update(req.body, {
-      where: { id }
+      where: { id, userId: req.user.id }
     });
     
     if (updatedCount === 0) {
       return errorResponse(res, 'Expense not found', 404);
     }
 
-    const updatedExpense = await Expense.findByPk(id);
+    const updatedExpense = await Expense.findOne({ 
+      where: { id, userId: req.user.id } 
+    });
     return successResponse(res, updatedExpense, 'Expense updated successfully');
   } catch (error) {
     return errorResponse(res, 'Failed to update expense', 400, error);
@@ -95,7 +99,9 @@ exports.updateExpense = async (req, res) => {
 exports.deleteExpense = async (req, res) => {
   try {
     const { id } = req.params;
-    const deletedCount = await Expense.destroy({ where: { id } });
+    const deletedCount = await Expense.destroy({ 
+      where: { id, userId: req.user.id } 
+    });
 
     if (deletedCount === 0) {
       return errorResponse(res, 'Expense not found', 404);
@@ -111,7 +117,7 @@ exports.deleteExpense = async (req, res) => {
 exports.getExpenseStats = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    const where = {};
+    const where = { userId: req.user.id };
 
     if (startDate || endDate) {
       const start = startDate ? new Date(startDate) : new Date(0);

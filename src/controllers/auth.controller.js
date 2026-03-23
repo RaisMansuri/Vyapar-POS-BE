@@ -8,12 +8,17 @@ const { getVerificationTemplate, getResetPasswordTemplate } = require('../utils/
 
 const register = async (req, res) => {
   try {
-    const { name, email, password, phone } = req.body;
+    const { name, email, password, phone, role } = req.body;
 
     // Check if user already exists
     const userExists = await User.findOne({ where: { email } });
     if (userExists) {
       return errorResponse(res, 'User already exists', 400);
+    }
+
+    // Phone validation (10 digits)
+    if (phone && !/^[0-9]{10}$/.test(phone)) {
+      return errorResponse(res, 'Invalid phone number. Must be exactly 10 digits.', 400);
     }
 
     // Generate 6-digit OTP
@@ -26,7 +31,10 @@ const register = async (req, res) => {
       email,
       password,
       phone,
-      isVerified: true 
+      role: role || 'Consumer',
+      isVerified: false,
+      verificationToken: otp,
+      verificationTokenExpires: new Date(verificationTokenExpires)
     });
 
     // Send verification email using template
@@ -117,7 +125,7 @@ const resendVerification = async (req, res) => {
     // Generate new 6-digit OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     user.verificationToken = otp;
-    user.verificationTokenExpires = Date.now() + 120 * 60 * 1000; // 120 minutes
+    user.verificationTokenExpires = new Date(Date.now() + 120 * 60 * 1000); // 120 minutes
     await user.save();
 
     // Send email using template

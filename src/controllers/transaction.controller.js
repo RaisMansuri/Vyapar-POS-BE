@@ -3,7 +3,7 @@ const { Op } = require('sequelize');
 const { successResponse, errorResponse } = require('../utils/response');
 
 // Helper to generate a unique transaction ID
-const generateTransactionId = async () => {
+const generateTransactionId = async (userId) => {
   const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
   const startOfDay = new Date(new Date().setHours(0, 0, 0, 0));
   const endOfDay = new Date(new Date().setHours(23, 59, 59, 999));
@@ -12,7 +12,8 @@ const generateTransactionId = async () => {
     where: {
       createdAt: {
         [Op.between]: [startOfDay, endOfDay]
-      }
+      },
+      userId
     }
   });
   return `TXN-${date}-${(count + 1).toString().padStart(3, '0')}`;
@@ -21,7 +22,7 @@ const generateTransactionId = async () => {
 // Create a transaction
 exports.recordTransaction = async (data) => {
   try {
-    const transactionId = await generateTransactionId();
+    const transactionId = await generateTransactionId(data.userId);
     const transactionData = {
       ...data,
       transactionId,
@@ -38,7 +39,7 @@ exports.recordTransaction = async (data) => {
 exports.getTransactions = async (req, res) => {
   try {
     const { startDate, endDate, type, paymentMethod, status, search } = req.query;
-    const where = {};
+    const where = { userId: req.user.id };
 
     if (startDate || endDate) {
       const start = startDate ? new Date(startDate) : new Date(0);
@@ -71,7 +72,9 @@ exports.getTransactions = async (req, res) => {
 // Get single transaction
 exports.getTransactionById = async (req, res) => {
   try {
-    const transaction = await Transaction.findByPk(req.params.id);
+    const transaction = await Transaction.findOne({ 
+      where: { id: req.params.id, userId: req.user.id } 
+    });
     if (!transaction) {
       return errorResponse(res, 'Transaction not found', 404);
     }

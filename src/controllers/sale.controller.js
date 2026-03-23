@@ -7,7 +7,7 @@ const { successResponse, errorResponse } = require('../utils/response');
 const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // Helper to generate a unique sale number
-const generateSaleNumber = async () => {
+const generateSaleNumber = async (req) => {
   const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
   const startOfDay = new Date(new Date().setHours(0, 0, 0, 0));
   const endOfDay = new Date(new Date().setHours(23, 59, 59, 999));
@@ -16,19 +16,21 @@ const generateSaleNumber = async () => {
     where: {
       timestamp: {
         [Op.between]: [startOfDay, endOfDay]
-      }
+      },
+      userId: req.user.id
     }
   });
   return `SAL-${date}-${(count + 1).toString().padStart(3, '0')}`;
 };
 
-const resolveProductCategory = async (item) => {
+const resolveProductCategory = async (item, userId) => {
   if (item.category) {
     return item.category;
   }
 
   if (item.productId) {
-    const product = await Product.findByPk(item.productId, {
+    const product = await Product.findOne({
+      where: { id: item.productId, userId },
       attributes: ['category'],
       raw: true
     });
@@ -39,7 +41,7 @@ const resolveProductCategory = async (item) => {
 
   if (item.name) {
     const product = await Product.findOne({
-      where: { name: { [Op.iLike]: item.name } },
+      where: { name: { [Op.iLike]: item.name }, userId },
       attributes: ['category'],
       raw: true
     });
@@ -57,7 +59,10 @@ const normalizeSaleItems = async (items = []) => Promise.all(
     const price = Number(item.price || 0);
     const total = item.total !== undefined ? Number(item.total) : quantity * price;
 
-    const product = await Product.findByPk(item.productId, { raw: true });
+    const product = await Product.findOne({ 
+      where: { id: item.productId, userId: req.user.id },
+      raw: true 
+    });
     const costPrice = product ? product.costPrice : (item.costPrice || 0);
 
     return {
@@ -76,13 +81,13 @@ const normalizeSaleItems = async (items = []) => Promise.all(
 exports.createSale = async (req, res) => {
   try {
     const { items, totalAmount, tax, discount, paymentMethod, processedBy, paymentStatus, amountPaid, dueDate, customerId } = req.body;
-    const normalizedItems = await normalizeSaleItems(items);
+    const normalizedItems = await normalizeSaleItems(items, req.user.id);
 
     if (!normalizedItems.length) {
       return errorResponse(res, 'At least one sale item is required', 400);
     }
 
-    const saleNumber = await generateSaleNumber();
+    const saleNumber = await generateSaleNumber(req);
     const computedTotalAmount = totalAmount !== undefined
       ? Number(totalAmount)
       : normalizedItems.reduce((sum, item) => sum + item.total, 0);
@@ -93,14 +98,16 @@ exports.createSale = async (req, res) => {
     for (const item of normalizedItems) {
       if (item.productId) {
         await Product.decrement({ stock: item.quantity }, {
-          where: { id: item.productId }
+          where: { id: item.productId, userId: req.user.id }
         });
       }
     }
 
     // CRM+ Integration: Loyalty Points & Wallet
     if (customerId) {
-        const customer = await Customer.findByPk(customerId);
+        const customer = await Customer.findOne({ 
+          where: { id: customerId, userId: req.user.id } 
+        });
         if (customer) {
             // Accrue Loyalty Points (1 point per Rs 100)
             const pointsEarned = Math.floor(computedTotalAmount / 100);
@@ -135,7 +142,8 @@ exports.createSale = async (req, res) => {
       amountPaid: paidAmount,
       amountDue: amountDue,
       dueDate: dueDate || null,
-      customerId: customerId || null
+      customerId: customerId || null,
+      userId: req.user.id
     });
 
     // Record Transaction
@@ -150,7 +158,8 @@ exports.createSale = async (req, res) => {
         referenceModel: 'Sale',
         customerId: customerId || null,
         processedBy: processedBy || 'System',
-        description: `Sale ${saleNumber}`
+        description: `Sale ${saleNumber}`,
+        userId: req.user.id
       });
     } catch (txnError) {
       console.error('Failed to record transaction for sale:', txnError);
@@ -166,7 +175,7 @@ exports.createSale = async (req, res) => {
 exports.getSales = async (req, res) => {
   try {
     const { startDate, endDate, staff, paymentStatus, paymentMethod, category, product, search } = req.query;
-    const where = {};
+    const where = { userId: req.user.id };
 
     if (startDate && endDate) {
       where.timestamp = { [Op.between]: [new Date(startDate), new Date(endDate)] };
@@ -219,11 +228,13 @@ exports.getSaleById = async (req, res) => {
     // Check if UUID or saleNumber
     const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
     
-    const where = isUUID 
+    const queryWhere = isUUID 
       ? { [Op.or]: [{ id }, { saleNumber: id }] }
       : { saleNumber: id };
 
-    const sale = await Sale.findOne({ where });
+    const sale = await Sale.findOne({ 
+      where: { ...queryWhere, userId: req.user.id } 
+    });
     if (!sale) {
       return errorResponse(res, 'Sale not found', 404);
     }
@@ -243,11 +254,13 @@ exports.getSalesReport = async (req, res) => {
         [Sequelize.fn('COUNT', Sequelize.col('id')), 'totalSales'],
         [Sequelize.fn('SUM', Sequelize.col('totalAmount')), 'totalRevenue']
       ],
+      where: { userId: req.user.id },
       group: ['processedBy'],
       raw: true
     });
 
     const overall = await Sale.findOne({
+      where: { userId: req.user.id },
       attributes: [
         [Sequelize.fn('COUNT', Sequelize.col('id')), 'totalTransactions'],
         [Sequelize.fn('SUM', Sequelize.col('totalAmount')), 'totalRevenue']
@@ -271,7 +284,10 @@ exports.getSalesStats = async (req, res) => {
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
     const salesByDay = await Sale.findAll({
-      where: { timestamp: { [Op.gte]: sevenDaysAgo } },
+      where: { 
+        timestamp: { [Op.gte]: sevenDaysAgo },
+        userId: req.user.id
+      },
       attributes: [
         [Sequelize.fn('DATE', Sequelize.col('timestamp')), 'day'],
         [Sequelize.fn('SUM', Sequelize.col('totalAmount')), 'revenue'],
@@ -286,6 +302,7 @@ exports.getSalesStats = async (req, res) => {
     // This is more complex in Postgres/Sequelize without raw query
     // We fetch and aggregate in JS for simplicity or use a raw query
     const allSales = await Sale.findAll({
+      where: { userId: req.user.id },
       attributes: ['items'],
       raw: true
     });
@@ -301,6 +318,7 @@ exports.getSalesStats = async (req, res) => {
     const salesByCategory = Object.entries(categoryStats).map(([name, value]) => ({ _id: name, value }));
 
     const overall = await Sale.findOne({
+      where: { userId: req.user.id },
       attributes: [
         [Sequelize.fn('COUNT', Sequelize.col('id')), 'totalOrders'],
         [Sequelize.fn('SUM', Sequelize.col('totalAmount')), 'totalRevenue']
@@ -322,7 +340,7 @@ exports.getSalesStats = async (req, res) => {
 exports.getDailyReport = async (req, res) => {
   try {
     const { startDate, endDate, category, product, productId, paymentMethod, processedBy } = req.query;
-    const where = {};
+    const where = { userId: req.user.id };
 
     if (startDate || endDate) {
       where.timestamp = {};

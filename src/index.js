@@ -65,6 +65,7 @@ app.use('/api/reports', require('./routes/report.routes'));
 app.use('/api/marketing', require('./routes/marketing.routes'));
 app.use('/api/transactions', require('./routes/transaction.routes'));
 app.use('/api/ai', require('./routes/ai.routes'));
+app.use('/api/notifications', require('./routes/notification.routes'));
 
 /* =======================
    ✅ POSTGRESQL CONNECTION

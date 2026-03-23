@@ -29,8 +29,8 @@ const User = sequelize.define('User', {
     allowNull: true
   },
   role: {
-    type: DataTypes.ENUM('Admin', 'Staff'),
-    defaultValue: 'Admin'
+    type: DataTypes.ENUM('Admin', 'Staff', 'Consumer'),
+    defaultValue: 'Consumer'
   },
   isVerified: {
     type: DataTypes.BOOLEAN,
@@ -50,6 +50,14 @@ const User = sequelize.define('User', {
   },
   resetPasswordExpires: {
     type: DataTypes.DATE,
+    allowNull: true
+  },
+  aiApiKey: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  aiModel: {
+    type: DataTypes.STRING,
     allowNull: true
   }
 }, {

@@ -6,8 +6,8 @@ const { successResponse, errorResponse } = require('../utils/response');
 exports.getProfitLoss = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    const saleWhere = {};
-    const expenseWhere = {};
+    const saleWhere = { userId: req.user.id };
+    const expenseWhere = { userId: req.user.id };
 
     if (startDate || endDate) {
       const start = startDate ? new Date(startDate) : new Date(0);

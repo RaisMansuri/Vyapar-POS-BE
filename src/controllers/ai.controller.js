@@ -13,9 +13,16 @@ class AiController {
   static async chat(req, res) {
     const { message, history } = req.body;
     
-    if (!process.env.OPENROUTER_API_KEY) {
+    // Fetch user from DB to get their personal API key
+    const User = require('../models/user.model');
+    const user = await User.findByPk(req.user.id);
+    
+    const apiKey = user?.aiApiKey || process.env.OPENROUTER_API_KEY;
+    const model = user?.aiModel || process.env.OPENROUTER_MODEL || "google/gemini-2.0-flash-lite-preview-02-05:free";
+
+    if (!apiKey) {
       return res.status(500).json({ 
-        response: "OpenRouter API Key is missing in backend .env file. Please add it to enable AI.",
+        response: "AI API Key is missing. Please configure your OpenRouter key in your profile settings.",
         action: { type: 'HELP' }
       });
     }
@@ -101,20 +108,27 @@ class AiController {
       let dataContext = "";
       const text = message.toLowerCase();
 
-      if (text.includes('sale') || text.includes('revenue') || text.includes('profit') || text.includes('money')) {
-        const stats = await AiController.getQuickStats();
+      if (text.includes('trending') || text.includes('best selling') || text.includes('popular')) {
+        const trending = await AiController.getTrendingProducts(req.user.id);
+        const cats = await AiController.getCategoryPerformance(req.user.id);
+        dataContext = `\nBUSINESS INSIGHTS (TRENDING): ${JSON.stringify(trending)}\nCATEGORY REVENUE: ${JSON.stringify(cats)}`;
+      } else if (text.includes('price') || text.includes('cheap') || text.includes('expensive') || text.includes('costly')) {
+        const prices = await AiController.getProductPriceStats(req.user.id);
+        dataContext = `\nPRODUCT PRICE STATS: ${JSON.stringify(prices)}`;
+      } else if (text.includes('sale') || text.includes('revenue') || text.includes('profit') || text.includes('money')) {
+        const stats = await AiController.getQuickStats(req.user.id);
         dataContext = `\nREAL-TIME SALES STATS: ${JSON.stringify(stats)}`;
       } else if (text.includes('stock') || text.includes('inventory') || text.includes('product')) {
-        const stock = await AiController.getLowStockInfo();
+        const stock = await AiController.getLowStockInfo(req.user.id);
         dataContext = `\nINVENTORY CONTEXT: ${JSON.stringify(stock)}`;
       } else if (text.includes('customer') || text.includes('user') || text.includes('client')) {
-        const customers = await AiController.getCustomerStats();
+        const customers = await AiController.getCustomerStats(req.user.id);
         dataContext = `\nCUSTOMER CONTEXT: ${JSON.stringify(customers)}`;
       } else if (text.includes('ticket') || text.includes('support') || text.includes('help') || text.includes('issue')) {
-        const tickets = await AiController.getTicketStats();
+        const tickets = await AiController.getTicketStats(req.user.id);
         dataContext = `\nSUPPORT CONTEXT: ${JSON.stringify(tickets)}`;
       } else if (text.includes('expense') || text.includes('cost') || text.includes('spent')) {
-        const expenses = await AiController.getExpenseStats();
+        const expenses = await AiController.getExpenseStats(req.user.id);
         dataContext = `\nEXPENSE CONTEXT: ${JSON.stringify(expenses)}`;
       }
 
@@ -122,13 +136,13 @@ class AiController {
       const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          "Authorization": `Bearer ${apiKey}`,
           "HTTP-Referer": "http://localhost:4200",
           "X-Title": "VyaparPOS Assistant",
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          model: process.env.OPENROUTER_MODEL || "google/gemini-2.0-flash-lite-preview-02-05:free",
+          model: model,
           messages: [
             { role: "system", content: systemPrompt + dataContext },
             ...history,
@@ -141,17 +155,24 @@ class AiController {
       
       // Step 3: Validate API Response
       if (result.error) {
-        console.error("OpenRouter API Error:", result.error);
+        console.error("OpenRouter API Error Full Object:", JSON.stringify(result.error, null, 2));
+        let errorMsg = result.error.message || 'Unknown provider error';
+        
+        // Specific handling for 'User not found' which often means invalid key
+        if (errorMsg.includes('User not found')) {
+          errorMsg = "Your OpenRouter API key appears to be invalid or deactivated. Please check your backend .env file.";
+        }
+
         return res.status(500).json({
-          response: `AI Error: ${result.error.message || 'Unknown provider error'}`,
+          response: `AI Error: ${errorMsg}`,
           action: { type: 'HELP' }
         });
       }
 
       if (!result.choices || !result.choices.length || !result.choices[0].message) {
-        console.error("Unexpected OpenRouter Response:", result);
+        console.error("Unexpected OpenRouter Response:", JSON.stringify(result, null, 2));
         return res.status(500).json({
-          response: "The AI service returned an empty or invalid response. Please try again later.",
+          response: "The AI service returned an empty or invalid response. Please verify your OpenRouter account balance and model availability.",
           action: { type: 'HELP' }
         });
       }
@@ -265,20 +286,36 @@ class AiController {
 
   // --- Helper Data Methods ---
 
-  static async getQuickStats() {
+  static async getQuickStats(userId) {
     const { Op } = require('sequelize');
     const startOfDay = new Date();
     startOfDay.setHours(0,0,0,0);
 
-    const sales = await Sale.findAll({ where: { timestamp: { [Op.gte]: startOfDay } }, raw: true });
-    const expenses = await Expense.findAll({ where: { date: { [Op.gte]: startOfDay } }, raw: true });
+    const sales = await Sale.findAll({ 
+      where: { 
+        timestamp: { [Op.gte]: startOfDay },
+        userId
+      }, 
+      raw: true 
+    });
+    const expenses = await Expense.findAll({ 
+      where: { 
+        date: { [Op.gte]: startOfDay },
+        userId
+      }, 
+      raw: true 
+    });
 
     const totalSales = sales.reduce((sum, s) => sum + Number(s.totalAmount || 0), 0);
     const totalExpenses = expenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
     
     // Simple profit calculation
     const saleCosts = sales.reduce((sum, s) => {
-        return sum + (s.items || []).reduce((itemSum, item) => itemSum + (Number(item.costPrice || 0) * Number(item.quantity || 0)), 0);
+        let items = s.items;
+        if (typeof items === 'string') {
+            try { items = JSON.parse(items); } catch (e) { items = []; }
+        }
+        return sum + (items || []).reduce((itemSum, item) => itemSum + (Number(item.costPrice || 0) * Number(item.quantity || 0)), 0);
     }, 0);
 
     return {
@@ -289,11 +326,12 @@ class AiController {
     };
   }
 
-  static async getLowStockInfo() {
+  static async getLowStockInfo(userId) {
     const { Op, Sequelize } = require('sequelize');
     const lowStock = await Product.findAll({ 
       where: {
-        stock: { [Op.lte]: Sequelize.col('minStockLevel') }
+        stock: { [Op.lte]: Sequelize.col('minStockLevel') },
+        userId
       },
       limit: 5,
       raw: true
@@ -301,7 +339,8 @@ class AiController {
 
     const count = await Product.count({
       where: {
-        stock: { [Op.lte]: Sequelize.col('minStockLevel') }
+        stock: { [Op.lte]: Sequelize.col('minStockLevel') },
+        userId
       }
     });
 
@@ -311,9 +350,10 @@ class AiController {
     };
   }
 
-  static async getCustomerStats() {
-    const totalCustomers = await Customer.count();
+  static async getCustomerStats(userId) {
+    const totalCustomers = await Customer.count({ where: { userId } });
     const topCustomers = await Customer.findAll({ 
+      where: { userId },
       order: [['totalSpent', 'DESC']],
       limit: 3,
       raw: true
@@ -325,12 +365,16 @@ class AiController {
     };
   }
 
-  static async getTicketStats() {
+  static async getTicketStats(userId) {
     const { Op } = require('sequelize');
     const openCount = await Ticket.count({ 
-      where: { status: { [Op.in]: ['Open', 'In Progress'] } } 
+      where: { 
+        status: { [Op.in]: ['Open', 'In Progress'] },
+        userId
+      } 
     });
     const recentTickets = await Ticket.findAll({ 
+      where: { userId },
       order: [['createdAt', 'DESC']], 
       limit: 3, 
       raw: true 
@@ -342,14 +386,16 @@ class AiController {
     };
   }
 
-  static async getExpenseStats() {
+  static async getExpenseStats(userId) {
     const { Sequelize } = require('sequelize');
     const expenses = await Expense.findAll({ 
+      where: { userId },
       order: [['date', 'DESC']], 
       limit: 10, 
       raw: true 
     });
     const totalByStatus = await Expense.findAll({
+      where: { userId },
       attributes: [
         ['category', '_id'],
         [Sequelize.fn('SUM', Sequelize.col('amount')), 'total']
@@ -362,6 +408,64 @@ class AiController {
       recent: expenses.map(e => ({ title: e.title, amount: e.amount, category: e.category })),
       ByCategory: totalByStatus
     };
+  }
+
+  static async getTrendingProducts(userId) {
+    const { Op } = require('sequelize');
+    const last30Days = new Date();
+    last30Days.setDate(last30Days.getDate() - 30);
+
+    const sales = await Sale.findAll({
+      where: { 
+        timestamp: { [Op.gte]: last30Days },
+        userId 
+      },
+      raw: true
+    });
+
+    const counts = {};
+    sales.forEach(sale => {
+      let items = sale.items;
+      if (typeof items === 'string') {
+        try { items = JSON.parse(items); } catch (e) { items = []; }
+      }
+      (items || []).forEach(item => {
+        const name = item.name || 'Unknown';
+        counts[name] = (counts[name] || 0) + (Number(item.quantity) || 0);
+      });
+    });
+
+    return Object.entries(counts)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 5)
+      .map(([name, count]) => ({ name, count }));
+  }
+
+  static async getProductPriceStats(userId) {
+    const cheapest = await Product.findAll({ where: { userId }, order: [['price', 'ASC']], limit: 3, raw: true });
+    const expensive = await Product.findAll({ where: { userId }, order: [['price', 'DESC']], limit: 3, raw: true });
+    return {
+      cheapest: cheapest.map(p => ({ name: p.name, price: p.price })),
+      expensive: expensive.map(p => ({ name: p.name, price: p.price }))
+    };
+  }
+
+  static async getCategoryPerformance(userId) {
+    const sales = await Sale.findAll({ where: { userId }, raw: true });
+    const performance = {};
+    sales.forEach(sale => {
+      let items = sale.items;
+      if (typeof items === 'string') {
+        try { items = JSON.parse(items); } catch (e) { items = []; }
+      }
+      (items || []).forEach(item => {
+        const cat = item.category || 'Uncategorized';
+        performance[cat] = (performance[cat] || 0) + (Number(item.total) || 0);
+      });
+    });
+    return Object.entries(performance)
+      .sort(([, a], [, b]) => b - a)
+      .map(([name, revenue]) => ({ name, revenue }));
   }
 }
 

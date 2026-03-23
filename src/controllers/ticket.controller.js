@@ -5,10 +5,10 @@ const { successResponse, errorResponse } = require('../utils/response');
 exports.createTicket = async (req, res) => {
   try {
     if (!req.body.ticketId) {
-        const count = await Ticket.count();
+        const count = await Ticket.count({ where: { userId: req.user.id } });
         req.body.ticketId = `TKT-${(1001 + count).toString()}`;
     }
-    const ticket = await Ticket.create(req.body);
+    const ticket = await Ticket.create({ ...req.body, userId: req.user.id });
     return successResponse(res, ticket, 'Ticket created successfully', 201);
   } catch (error) {
     return errorResponse(res, 'Failed to create ticket', 400, error);
@@ -18,7 +18,10 @@ exports.createTicket = async (req, res) => {
 // Get all Tickets
 exports.getTickets = async (req, res) => {
   try {
-    const tickets = await Ticket.findAll({ order: [['createdAt', 'DESC']] });
+    const tickets = await Ticket.findAll({ 
+      where: { userId: req.user.id },
+      order: [['createdAt', 'DESC']] 
+    });
     return successResponse(res, tickets, 'Tickets retrieved successfully');
   } catch (error) {
     return errorResponse(res, 'Failed to retrieve tickets', 500, error);
@@ -28,7 +31,9 @@ exports.getTickets = async (req, res) => {
 // Get Ticket by ID
 exports.getTicketById = async (req, res) => {
   try {
-    const ticket = await Ticket.findByPk(req.params.id);
+    const ticket = await Ticket.findOne({ 
+      where: { id: req.params.id, userId: req.user.id } 
+    });
     if (!ticket) return errorResponse(res, 'Ticket not found', 404);
     return successResponse(res, ticket, 'Ticket retrieved successfully');
   } catch (error) {
@@ -42,10 +47,12 @@ exports.updateTicketStatus = async (req, res) => {
     const { status } = req.body;
     const [updatedCount] = await Ticket.update(
         { status }, 
-        { where: { id: req.params.id } }
+        { where: { id: req.params.id, userId: req.user.id } }
     );
     if (updatedCount === 0) return errorResponse(res, 'Ticket not found', 404);
-    const updatedTicket = await Ticket.findByPk(req.params.id);
+    const updatedTicket = await Ticket.findOne({ 
+      where: { id: req.params.id, userId: req.user.id } 
+    });
     return successResponse(res, updatedTicket, 'Ticket status updated successfully');
   } catch (error) {
     return errorResponse(res, 'Failed to update ticket status', 400, error);
@@ -56,7 +63,9 @@ exports.updateTicketStatus = async (req, res) => {
 exports.addComment = async (req, res) => {
   try {
     const { author, message } = req.body;
-    const ticket = await Ticket.findByPk(req.params.id);
+    const ticket = await Ticket.findOne({ 
+      where: { id: req.params.id, userId: req.user.id } 
+    });
     if (!ticket) return errorResponse(res, 'Ticket not found', 404);
     
     const comments = [...(ticket.comments || []), { author, message, timestamp: new Date() }];
@@ -71,7 +80,9 @@ exports.addComment = async (req, res) => {
 // Delete Ticket
 exports.deleteTicket = async (req, res) => {
   try {
-    const deletedCount = await Ticket.destroy({ where: { id: req.params.id } });
+    const deletedCount = await Ticket.destroy({ 
+      where: { id: req.params.id, userId: req.user.id } 
+    });
     if (deletedCount === 0) return errorResponse(res, 'Ticket not found', 404);
     return successResponse(res, null, 'Ticket deleted successfully');
   } catch (error) {

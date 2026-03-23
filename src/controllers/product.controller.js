@@ -19,7 +19,7 @@ exports.createProduct = async (req, res) => {
     // Remove id if present (Sequelize will generate UUID)
     if (data.id) delete data.id;
 
-    const product = await Product.create(data);
+    const product = await Product.create({ ...data, userId: req.user.id });
     return successResponse(res, product, 'Product created successfully', 201);
   } catch (error) {
     console.error('--- PRODUCT CREATION ERROR ---');
@@ -70,7 +70,9 @@ exports.getProducts = async (req, res) => {
 // Get Product by ID
 exports.getProductById = async (req, res) => {
   try {
-    const product = await Product.findByPk(req.params.id);
+    const product = await Product.findOne({ 
+      where: { id: req.params.id, userId: req.user.id } 
+    });
     if (!product) return errorResponse(res, 'Product not found', 404);
     return successResponse(res, product, 'Product retrieved successfully');
   } catch (error) {
@@ -89,12 +91,14 @@ exports.updateProduct = async (req, res) => {
     }
 
     const [updatedCount] = await Product.update(data, {
-      where: { id: req.params.id }
+      where: { id: req.params.id, userId: req.user.id }
     });
 
     if (updatedCount === 0) return errorResponse(res, 'Product not found', 404);
     
-    const updatedProduct = await Product.findByPk(req.params.id);
+    const updatedProduct = await Product.findOne({ 
+      where: { id: req.params.id, userId: req.user.id } 
+    });
     return successResponse(res, updatedProduct, 'Product updated successfully');
   } catch (error) {
     console.error('--- PRODUCT UPDATE ERROR ---');
@@ -108,7 +112,7 @@ exports.updateProduct = async (req, res) => {
 exports.deleteProduct = async (req, res) => {
   try {
     const deletedCount = await Product.destroy({
-      where: { id: req.params.id }
+      where: { id: req.params.id, userId: req.user.id }
     });
     if (deletedCount === 0) return errorResponse(res, 'Product not found', 404);
     return successResponse(res, null, 'Product deleted successfully');
@@ -136,7 +140,8 @@ exports.getLowStock = async (req, res) => {
   try {
     const products = await Product.findAll({
       where: {
-        stock: { [Op.lte]: Sequelize.col('minStockLevel') }
+        stock: { [Op.lte]: Sequelize.col('minStockLevel') },
+        userId: req.user.id
       }
     });
     return successResponse(res, products, 'Low stock products retrieved successfully');
