@@ -18,7 +18,7 @@ app.use(cors({
     'https://vyapar-pos-git-development-raismansuri74059-1745s-projects.vercel.app'
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Skip-Loader']
 }));
 
 

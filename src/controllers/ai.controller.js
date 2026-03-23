@@ -3,6 +3,7 @@ const Sale = require('../models/sale.model');
 const Expense = require('../models/expense.model');
 const Customer = require('../models/customer.model');
 const Ticket = require('../models/ticket.model');
+const User = require('../models/user.model');
 
 /**
  * Advanced AI Controller
@@ -11,21 +12,48 @@ const Ticket = require('../models/ticket.model');
 class AiController {
   
   static async chat(req, res) {
-    const { message, history } = req.body;
+    const { message, userId, history } = req.body;
     
+    // Prioritize explicit userId from body, fallback to authenticated user id from JWT
+    const finalUserId = userId || req.user?.id;
+    
+    console.log(`[AI Chat] Request from User ID: ${finalUserId} (Explicit in body: ${userId}, Authenticated: ${req.user?.id})`);
+
+    if (!finalUserId) {
+      return res.status(401).json({ 
+        response: "User identity not found. Please log in again.",
+        action: { type: 'NAVIGATE', payload: '/auth/login' }
+      });
+    }
+
     // Fetch user from DB to get their personal API key
-    const User = require('../models/user.model');
-    const user = await User.findByPk(req.user.id);
+    let user;
+    try {
+      user = await User.findByPk(finalUserId);
+    } catch (dbError) {
+      console.error("[AI Chat] DB Error fetching user:", dbError);
+    }
     
-    const apiKey = user?.aiApiKey || process.env.OPENROUTER_API_KEY;
-    const model = user?.aiModel || process.env.OPENROUTER_MODEL || "google/gemini-2.0-flash-lite-preview-02-05:free";
+    if (!user) {
+      console.warn(`[AI Chat] User not found in DB for ID: ${finalUserId}`);
+      return res.status(401).json({ 
+        response: "Your account could not be verified. Please log in again.",
+        action: { type: 'NAVIGATE', payload: '/auth/login' }
+      });
+    }
+    
+    const apiKey = user.aiApiKey || process.env.OPENROUTER_API_KEY;
+    const model = user.aiModel || process.env.OPENROUTER_MODEL || "google/gemini-2.0-flash-lite-preview-02-05:free";
 
     if (!apiKey) {
+      console.error("[AI Chat] API Key is missing for user or global config.");
       return res.status(500).json({ 
-        response: "AI API Key is missing. Please configure your OpenRouter key in your profile settings.",
+        response: "AI Assistant is not configured. Please add an OpenRouter API key to your profile settings.",
         action: { type: 'HELP' }
       });
     }
+
+    console.log(`[AI Chat] Using model: ${model}, API Key masked: ${apiKey.substring(0, 10)}...`);
 
     try {
       // Step 1: Intent Analysis & Tool Calling (Internal Simulation or direct LLM call)
@@ -43,22 +71,34 @@ class AiController {
         - Support Tickets: subject, status, priority, description.
 
         COMMERCE CAPABILITIES & ACTIONS:
-        If the user wants to perform a business action, respond with the appropriate JSON action:
+        If you are listing products, categories or performing a business action, respond with the appropriate JSON action:
 
-        1. ADD TO CART:
+        1. SHOW_PRODUCTS:
+           {"action": {"type": "SHOW_PRODUCTS", "payload": {"title": "Best Sellers", "products": [{"name": "...", "price": 0, "stock": 0, "category": "..."}]}}}
+           Use this whenever a user asks to see products, a menu, or "What do you have?".
+        
+        2. SHOW_CATEGORIES:
+           {"action": {"type": "SHOW_CATEGORIES", "payload": {"categories": [{"name": "...", "productCount": 0}]}}}
+           Use this when the user asks for categories or "Show me the sections".
+
+        3. ADD_TO_CART:
            {"action": {"type": "ADD_TO_CART", "payload": {"products": [{"id": "...", "name": "...", "quantity": 1, "price": 0}]}}}
-           Use this when the user says "Add [product] to cart" or "I want to buy [product]".
+           Use this when the user says "Add [product] to cart".
+
+        4. CONFIRMATION:
+           {"action": {"type": "CONFIRMATION", "payload": {"message": "Shall I add 5 breads to your cart?", "onConfirm": "Yes, add them", "onCancel": "No, thanks"}}}
+           Use this when you need user approval before performing a major action (like adding multiple items or checking out).
+
         AVAILABLE ACTIONS (respond with JSON like {"action": {"type": "ACTION_TYPE", "payload": {...}}}):
-        - ADD_TO_CART: {"products": [{"name": "...", "quantity": 1}, ...]} 
-          (Use this for "Buy [quantity] [product]" or "Add [product] to cart". Provide product NAMES, the system will find them.)
-        - NAVIGATE: "/cart" (Use this for "checkout", "generate invoice", or "payment options")
-        - GENERATE_QR: {"amount": 500, "orderId": "..."}
-        - SHOW_INVOICE: {"orderId": "..."}
-        - CHECK_DETAILS: {}
-        - ADD_PRODUCT: {"name": "...", "category": "...", "price": 100, "stock": 50, "gstRate": 18, "imageUrl": "...", "description": "..."}
-        - ADD_MULTIPLE_PRODUCTS: {"products": [{"name": "...", ...}, ...]}
+        - CONFIRMATION: {"message": "...", "onConfirm": "...", "onCancel": "..."}
+        - SHOW_PRODUCTS: {"title": "...", "products": [...]} 
+        - SHOW_CATEGORIES: {"categories": [...]}
+        - ADD_TO_CART: {"products": [...]} 
+        - NAVIGATE: "/cart"
+        - GENERATE_QR: {"amount": 500, "name": "...", "upiId": "..."}
+        - SHOW_INVOICE: {"orderId": "...", "total": 0}
+        - ADD_PRODUCT: {"name": "...", "category": "...", "price": 100, "stock": 50}
         - ADD_CATEGORY: {"name": "...", "description": "..."}
-        - ADD_MULTIPLE_CATEGORIES: {"categories": [{"name": "...", "description": "..."}, ...]}
 
         Market Analysis Mode:
         If the user asks for "market analysis" or "trendy categories", suggest relevant bakery/retail categories (e.g., Gluten-free, Keto-friendly, Vegan Delights, Seasonal Specials) and then offer to add them.
@@ -109,30 +149,32 @@ class AiController {
       const text = message.toLowerCase();
 
       if (text.includes('trending') || text.includes('best selling') || text.includes('popular')) {
-        const trending = await AiController.getTrendingProducts(req.user.id);
-        const cats = await AiController.getCategoryPerformance(req.user.id);
+        const trending = await AiController.getTrendingProducts(finalUserId);
+        const cats = await AiController.getCategoryPerformance(finalUserId);
         dataContext = `\nBUSINESS INSIGHTS (TRENDING): ${JSON.stringify(trending)}\nCATEGORY REVENUE: ${JSON.stringify(cats)}`;
       } else if (text.includes('price') || text.includes('cheap') || text.includes('expensive') || text.includes('costly')) {
-        const prices = await AiController.getProductPriceStats(req.user.id);
+        const prices = await AiController.getProductPriceStats(finalUserId);
         dataContext = `\nPRODUCT PRICE STATS: ${JSON.stringify(prices)}`;
       } else if (text.includes('sale') || text.includes('revenue') || text.includes('profit') || text.includes('money')) {
-        const stats = await AiController.getQuickStats(req.user.id);
+        const stats = await AiController.getQuickStats(finalUserId);
         dataContext = `\nREAL-TIME SALES STATS: ${JSON.stringify(stats)}`;
       } else if (text.includes('stock') || text.includes('inventory') || text.includes('product')) {
-        const stock = await AiController.getLowStockInfo(req.user.id);
+        const stock = await AiController.getLowStockInfo(finalUserId);
         dataContext = `\nINVENTORY CONTEXT: ${JSON.stringify(stock)}`;
       } else if (text.includes('customer') || text.includes('user') || text.includes('client')) {
-        const customers = await AiController.getCustomerStats(req.user.id);
+        const customers = await AiController.getCustomerStats(finalUserId);
         dataContext = `\nCUSTOMER CONTEXT: ${JSON.stringify(customers)}`;
       } else if (text.includes('ticket') || text.includes('support') || text.includes('help') || text.includes('issue')) {
-        const tickets = await AiController.getTicketStats(req.user.id);
+        const tickets = await AiController.getTicketStats(finalUserId);
         dataContext = `\nSUPPORT CONTEXT: ${JSON.stringify(tickets)}`;
       } else if (text.includes('expense') || text.includes('cost') || text.includes('spent')) {
-        const expenses = await AiController.getExpenseStats(req.user.id);
+        const expenses = await AiController.getExpenseStats(finalUserId);
         dataContext = `\nEXPENSE CONTEXT: ${JSON.stringify(expenses)}`;
       }
 
       // Step 2: Call OpenRouter
+      const safeHistory = Array.isArray(history) ? history : [];
+      
       const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -145,7 +187,7 @@ class AiController {
           model: model,
           messages: [
             { role: "system", content: systemPrompt + dataContext },
-            ...history,
+            ...safeHistory,
             { role: "user", content: message }
           ]
         })
@@ -155,12 +197,12 @@ class AiController {
       
       // Step 3: Validate API Response
       if (result.error) {
-        console.error("OpenRouter API Error Full Object:", JSON.stringify(result.error, null, 2));
+        console.error("[AI Chat] OpenRouter API Error:", JSON.stringify(result.error, null, 2));
         let errorMsg = result.error.message || 'Unknown provider error';
         
-        // Specific handling for 'User not found' which often means invalid key
-        if (errorMsg.includes('User not found')) {
-          errorMsg = "Your OpenRouter API key appears to be invalid or deactivated. Please check your backend .env file.";
+        // Specific handling for 'User not found' which often means invalid key for OpenRouter
+        if (errorMsg.toLowerCase().includes('user not found')) {
+          errorMsg = "Your OpenRouter API key is invalid or your account has no credits. Please update your API key in Profile settings.";
         }
 
         return res.status(500).json({
