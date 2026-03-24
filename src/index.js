@@ -37,8 +37,16 @@ app.get('/', (req, res) => {
 });
 
 /* =======================
-   ✅ HEALTH CHECK
+   ✅ HEALTH CHECK & BASE API
 ======================= */
+app.get('/api', (req, res) => {
+  res.status(200).json({
+    status: 'OK',
+    message: 'Vyapar POS API is live',
+    version: '1.0.0'
+  });
+});
+
 app.get('/api/health', (req, res) => {
   res.status(200).json({
     status: 'OK',
