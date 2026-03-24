@@ -13,13 +13,23 @@ const app = express();
 /* =======================
    ✅ CORS CONFIGURATION
 ======================= */
+
+const allowedOrigins = [
+  "http://localhost:4200",
+  "https://vyapar-pos-git-development-raismansuri74059-1745s-projects.vercel.app"
+];
+
 app.use(cors({
-  origin: [
-    "http://localhost:4200",
-    "https://vyapar-pos-git-development-raismansuri74059-1745s-projects.vercel.app" // your frontend deployed domain
-  ],
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("CORS not allowed"));
+    }
+  },
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Skip-Loader']
+  allowedHeaders: ["Content-Type", "Authorization", "X-Skip-Loader"],
+  credentials: true
 }));
 
 
