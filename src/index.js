@@ -88,21 +88,20 @@ async function startServer() {
 }
 
 /* =======================
+   ✅ EXPORT APP
+======================= */
+module.exports = app;
+
+/* =======================
    ✅ SERVER START (LOCAL)
 ======================= */
-const PORT = process.env.PORT || 5000;
-
 if (process.env.NODE_ENV !== 'production') {
+  const PORT = process.env.PORT || 5000;
   app.listen(PORT, async () => {
     await startServer();
     console.log(`🚀 Server running on http://localhost:${PORT}`);
   });
 }
 
-/* =======================
-   ✅ EXPORT FOR VERCEL
-======================= */
-module.exports = async (req, res) => {
-  await startServer();
-  return app(req, res);
-};
+// Export startServer for the Vercel entry point
+module.exports.startServer = startServer;
