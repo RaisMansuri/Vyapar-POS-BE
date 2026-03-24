@@ -1,5 +1,11 @@
 const { Sequelize } = require('sequelize');
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../../.env') });
+
+if (!process.env.POSTGRES_URL) {
+  console.error('❌ FATAL: POSTGRES_URL is not defined in environment variables.');
+  process.exit(1);
+}
 
 const sequelize = new Sequelize(process.env.POSTGRES_URL, {
   dialect: 'postgres',
