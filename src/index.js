@@ -14,10 +14,7 @@ const app = express();
    ✅ CORS CONFIGURATION
 ======================= */
 app.use(cors({
-  origin: [
-    'http://localhost:4200',
-    'https://vyapar-pos-git-development-raismansuri74059-1745s-projects.vercel.app'
-  ],
+  origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Skip-Loader']
 }));
