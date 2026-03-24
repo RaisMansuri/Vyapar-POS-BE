@@ -1,3 +1,4 @@
+const { Op } = require('sequelize');
 const Category = require('../models/category.model');
 const Product = require('../models/product.model');
 const { successResponse, errorResponse } = require('../utils/response');
@@ -19,7 +20,12 @@ exports.createCategory = async (req, res) => {
 exports.getCategories = async (req, res) => {
   try {
     const categories = await Category.findAll({ 
-      where: { userId: req.user.id },
+      where: { 
+        [Op.or]: [
+          { userId: req.user.id },
+          { userId: '00000000-0000-0000-0000-000000000000' }
+        ]
+      },
       order: [['name', 'ASC']] 
     });
     return successResponse(res, categories, 'Categories retrieved successfully');
@@ -32,7 +38,13 @@ exports.getCategories = async (req, res) => {
 exports.getCategoryById = async (req, res) => {
   try {
     const category = await Category.findOne({ 
-      where: { id: req.params.id, userId: req.user.id } 
+      where: { 
+        id: req.params.id,
+        [Op.or]: [
+          { userId: req.user.id },
+          { userId: '00000000-0000-0000-0000-000000000000' }
+        ]
+      } 
     });
     if (!category) return errorResponse(res, 'Category not found', 404);
     return successResponse(res, category, 'Category retrieved successfully');

@@ -11,6 +11,10 @@ const sanitizeUser = (user) => ({
   aiApiKey: user.aiApiKey,
   aiModel: user.aiModel,
   upiId: user.upiId,
+  address: user.address,
+  city: user.city,
+  state: user.state,
+  pincode: user.pincode,
   createdAt: user.createdAt,
   updatedAt: user.updatedAt
 });
@@ -109,6 +113,13 @@ exports.updateUser = async (req, res) => {
     if (role !== undefined) user.role = role;
     if (typeof isVerified === 'boolean') user.isVerified = isVerified;
     if (password) user.password = password;
+    if (req.body.address !== undefined) user.address = req.body.address;
+    if (req.body.city !== undefined) user.city = req.body.city;
+    if (req.body.state !== undefined) user.state = req.body.state;
+    if (req.body.pincode !== undefined) user.pincode = req.body.pincode;
+    if (req.body.aiApiKey !== undefined) user.aiApiKey = req.body.aiApiKey;
+    if (req.body.aiModel !== undefined) user.aiModel = req.body.aiModel;
+    if (req.body.upiId !== undefined) user.upiId = req.body.upiId;
 
     await user.save();
 
@@ -158,6 +169,10 @@ exports.updateCurrentUser = async (req, res) => {
     if (name !== undefined) user.name = name;
     if (phone !== undefined) user.phone = phone;
     if (password) user.password = password;
+    if (req.body.address !== undefined) user.address = req.body.address;
+    if (req.body.city !== undefined) user.city = req.body.city;
+    if (req.body.state !== undefined) user.state = req.body.state;
+    if (req.body.pincode !== undefined) user.pincode = req.body.pincode;
     if (req.body.aiApiKey !== undefined) user.aiApiKey = req.body.aiApiKey;
     if (req.body.aiModel !== undefined) user.aiModel = req.body.aiModel;
     if (req.body.upiId !== undefined) user.upiId = req.body.upiId;

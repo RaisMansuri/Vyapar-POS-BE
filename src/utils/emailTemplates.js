@@ -140,3 +140,73 @@ exports.getWelcomeTemplate = (name) => {
     `;
     return getBaseTemplate('Welcome to Vyapar POS', content);
 };
+
+exports.getInvoiceEmailTemplate = (order, invoiceNumber) => {
+    const itemsHtml = (order.items || []).map(item => {
+        const product = item.product || { name: item.name || 'Product', category: item.category || 'General', price: item.price || 0 };
+        return `
+        <tr>
+            <td style="padding: 10px; border-bottom: 1px solid #eee;">
+                <strong>${product.name}</strong><br>
+                <small style="color: #888;">${product.category}</small>
+            </td>
+            <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center;">${item.quantity}</td>
+            <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">₹${(product.price || 0).toLocaleString()}</td>
+            <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;"><strong>₹${(item.total || 0).toLocaleString()}</strong></td>
+        </tr>
+    `}).join('');
+
+    const content = `
+        <div style="text-align: center; margin-bottom: 30px;">
+            <h2 style="color: #333; margin-bottom: 5px;">Invoice ${invoiceNumber}</h2>
+            <p style="color: #888; font-size: 14px;">Order Date: ${new Date(order.timestamp || order.orderDate || Date.now()).toLocaleDateString()}</p>
+        </div>
+
+        <div style="margin-bottom: 30px; display: flex; justify-content: space-between;">
+            <div style="flex: 1;">
+                <h4 style="color: #888; text-transform: uppercase; font-size: 12px; margin-bottom: 10px;">Billing Address</h4>
+                <p style="margin: 0; font-weight: bold;">${order.address?.fullName || 'Valued Customer'}</p>
+                ${order.address?.addressLine1 ? `<p style="margin: 0; font-size: 14px; color: #555;">${order.address.addressLine1}</p>` : ''}
+                ${(order.address?.city || order.address?.state || order.address?.pincode) ? 
+                    `<p style="margin: 0; font-size: 14px; color: #555;">${[order.address?.city, order.address?.state].filter(Boolean).join(', ')}${order.address?.pincode ? ' - ' + order.address.pincode : ''}</p>` 
+                    : ''}
+            </div>
+        </div>
+
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
+            <thead>
+                <tr style="background-color: #f8f9fa;">
+                    <th style="padding: 12px 10px; text-align: left; font-size: 12px; text-transform: uppercase; color: #888;">Item</th>
+                    <th style="padding: 12px 10px; text-align: center; font-size: 12px; text-transform: uppercase; color: #888;">Qty</th>
+                    <th style="padding: 12px 10px; text-align: right; font-size: 12px; text-transform: uppercase; color: #888;">Price</th>
+                    <th style="padding: 12px 10px; text-align: right; font-size: 12px; text-transform: uppercase; color: #888;">Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${itemsHtml}
+            </tbody>
+        </table>
+
+        <div style="width: 250px; margin-left: auto;">
+            <div style="display: flex; justify-content: space-between; padding: 5px 0;">
+                <span style="color: #888;">Subtotal:</span>
+                <span style="font-weight: bold;">₹${(order.subTotal || (Number(order.totalAmount || 0) - Number(order.tax || 0))).toLocaleString()}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; padding: 5px 0;">
+                <span style="color: #888;">Tax:</span>
+                <span style="font-weight: bold;">₹${(order.tax || order.totalGST || 0).toLocaleString()}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; padding: 15px 0; border-top: 2px solid #4CAF50; margin-top: 10px;">
+                <span style="font-size: 18px; font-weight: bold;">Grand Total:</span>
+                <span style="font-size: 18px; font-weight: bold; color: #2E7D32;">₹${(order.totalAmount || 0).toLocaleString()}</span>
+            </div>
+        </div>
+
+        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin-top: 30px;">
+            <p style="margin: 0; font-size: 14px; color: #555;"><strong>Payment Status:</strong> Paid</p>
+            <p style="margin: 5px 0 0; font-size: 14px; color: #555;"><strong>Payment Method:</strong> ${order.paymentMethod}</p>
+        </div>
+    `;
+
+    return getBaseTemplate(`Your Invoice from Vyapar POS - ${invoiceNumber}`, content);
+};

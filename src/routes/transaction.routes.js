@@ -7,6 +7,15 @@ router.use(authMiddleware);
 
 /**
  * @swagger
+ * /api/transactions/stats:
+ *   get:
+ *     summary: Get transaction statistics
+ *     tags: [Transactions]
+ */
+router.get('/stats', transactionController.getTransactionStats);
+
+/**
+ * @swagger
  * /api/transactions:
  *   get:
  *     summary: Get all transactions

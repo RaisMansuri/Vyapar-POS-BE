@@ -3,6 +3,8 @@ const Product = require('../models/product.model');
 const Customer = require('../models/customer.model');
 const { Op, Sequelize } = require('sequelize');
 const { successResponse, errorResponse } = require('../utils/response');
+const { sendEmail } = require('../utils/email');
+const { getInvoiceEmailTemplate } = require('../utils/emailTemplates');
 
 const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -53,26 +55,32 @@ const resolveProductCategory = async (item, userId) => {
   return 'Uncategorized';
 };
 
-const normalizeSaleItems = async (items = []) => Promise.all(
+const normalizeSaleItems = async (items = [], userId) => Promise.all(
   (Array.isArray(items) ? items : []).map(async (item) => {
     const quantity = Number(item.quantity || 1);
     const price = Number(item.price || 0);
     const total = item.total !== undefined ? Number(item.total) : quantity * price;
 
     const product = await Product.findOne({ 
-      where: { id: item.productId, userId: req.user.id },
+      where: { id: item.productId, userId },
       raw: true 
     });
     const costPrice = product ? product.costPrice : (item.costPrice || 0);
 
     return {
       productId: item.productId,
+      product: {
+        id: item.productId,
+        name: item.name || 'Unnamed Product',
+        imageUrl: product ? product.imageUrl : (item.imageUrl || ''),
+        category: await resolveProductCategory(item, userId)
+      },
       name: item.name || 'Unnamed Product',
       quantity,
       price,
       costPrice,
       total,
-      category: await resolveProductCategory(item)
+      category: await resolveProductCategory(item, userId)
     };
   })
 );
@@ -80,7 +88,18 @@ const normalizeSaleItems = async (items = []) => Promise.all(
 // Create a new sale
 exports.createSale = async (req, res) => {
   try {
-    const { items, totalAmount, tax, discount, paymentMethod, processedBy, paymentStatus, amountPaid, dueDate, customerId } = req.body;
+    const { items, totalAmount, tax, discount, paymentMethod, processedBy, paymentStatus, amountPaid, dueDate, customerId, address } = req.body;
+    
+    // Normalize paymentMethod for Enum validation
+    let normalizedPaymentMethod = paymentMethod;
+    if (paymentMethod && typeof paymentMethod === 'string') {
+        const pm = paymentMethod.toLowerCase();
+        if (pm === 'upi') normalizedPaymentMethod = 'UPI';
+        else if (pm === 'cash') normalizedPaymentMethod = 'Cash';
+        else if (pm === 'card') normalizedPaymentMethod = 'Card';
+        else if (pm === 'other') normalizedPaymentMethod = 'Other';
+    }
+
     const normalizedItems = await normalizeSaleItems(items, req.user.id);
 
     if (!normalizedItems.length) {
@@ -135,7 +154,7 @@ exports.createSale = async (req, res) => {
       totalAmount: computedTotalAmount,
       tax,
       discount,
-      paymentMethod,
+      paymentMethod: normalizedPaymentMethod,
       processedBy: processedBy || 'System',
       timestamp: new Date(),
       paymentStatus: paymentStatus || 'Paid',
@@ -143,6 +162,7 @@ exports.createSale = async (req, res) => {
       amountDue: amountDue,
       dueDate: dueDate || null,
       customerId: customerId || null,
+      address: address || null,
       userId: req.user.id
     });
 
@@ -215,7 +235,24 @@ exports.getSales = async (req, res) => {
       where,
       order: [['timestamp', 'DESC']]
     });
-    return successResponse(res, sales, 'Sales retrieved successfully');
+
+    const transformedSales = sales.map(sale => {
+      const saleObj = sale.toJSON();
+      saleObj.items = (saleObj.items || []).map(item => {
+        if (!item.product) {
+          item.product = {
+            id: item.productId,
+            name: item.name,
+            imageUrl: item.imageUrl || '',
+            category: item.category
+          };
+        }
+        return item;
+      });
+      return saleObj;
+    });
+
+    return successResponse(res, transformedSales, 'Sales retrieved successfully');
   } catch (error) {
     return errorResponse(res, 'Failed to retrieve sales', 500, error);
   }
@@ -239,7 +276,20 @@ exports.getSaleById = async (req, res) => {
       return errorResponse(res, 'Sale not found', 404);
     }
 
-    return successResponse(res, sale, 'Sale retrieved successfully');
+    const saleObj = sale.toJSON();
+    saleObj.items = (saleObj.items || []).map(item => {
+      if (!item.product) {
+        item.product = {
+          id: item.productId,
+          name: item.name,
+          imageUrl: item.imageUrl || '',
+          category: item.category
+        };
+      }
+      return item;
+    });
+
+    return successResponse(res, saleObj, 'Sale retrieved successfully');
   } catch (error) {
     return errorResponse(res, 'Failed to retrieve sale', 500, error);
   }
@@ -397,5 +447,71 @@ exports.getDailyReport = async (req, res) => {
     return successResponse(res, report, 'Daily report retrieved successfully');
   } catch (error) {
     return errorResponse(res, 'Failed to retrieve daily report', 500, error);
+  }
+};
+
+/**
+ * Send invoice to customer (Email & SMS)
+ */
+exports.sendInvoice = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { email, phone } = req.body;
+
+    if (!email && !phone) {
+      return errorResponse(res, 'Email or Phone is required', 400);
+    }
+
+    const sale = await Sale.findOne({
+      where: { id, userId: req.user.id }
+    });
+
+    if (!sale) {
+      return errorResponse(res, 'Order not found', 404);
+    }
+
+    const saleObj = sale.toJSON();
+    saleObj.items = (saleObj.items || []).map(item => {
+      if (!item.product) {
+        item.product = {
+          id: item.productId,
+          name: item.name || 'Unnamed Product',
+          imageUrl: item.imageUrl || '',
+          category: item.category || 'Uncategorized',
+          price: item.price || 0
+        };
+      }
+      return item;
+    });
+
+    const invoiceNumber = 'INV-' + (sale.saleNumber || sale.id).replace('ORD-', '');
+    const results = [];
+
+    // 1. Handle Email
+    if (email) {
+      const emailHtml = getInvoiceEmailTemplate(saleObj, invoiceNumber);
+      try {
+        await sendEmail(email, `Invoice ${invoiceNumber} from Vyapar POS`, emailHtml);
+        results.push({ type: 'Email', status: 'Sent', destination: email });
+      } catch (err) {
+        console.error('Failed to send invoice email:', err);
+        results.push({ type: 'Email', status: 'Failed', error: err.message });
+      }
+    }
+
+    // 2. Handle SMS (Simulated)
+    if (phone) {
+      console.log('\n--------------------------------------------------');
+      console.log('MOCK SMS GATEWAY: SENDING INVOICE');
+      console.log('To:', phone);
+      console.log('Message: Your invoice', invoiceNumber, 'for ₹' + sale.totalAmount, 'is ready. View at: https://vyaparpos.com/inv/' + sale.id);
+      console.log('--------------------------------------------------\n');
+      results.push({ type: 'SMS', status: 'Sent (Simulated)', destination: phone });
+    }
+
+    return successResponse(res, results, 'Invoice delivery handled');
+  } catch (error) {
+    console.error('Invoice sending error:', error);
+    return errorResponse(res, 'Failed to process invoice delivery', 500, error);
   }
 };

@@ -92,5 +92,6 @@ router.get('/daily-report', saleController.getDailyReport);
  */
 router.get('/report', saleController.getSalesReport);
 router.get('/:id', saleController.getSaleById);
+router.post('/:id/send', saleController.sendInvoice);
 
 module.exports = router;

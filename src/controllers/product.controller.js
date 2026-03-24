@@ -58,7 +58,12 @@ exports.getProducts = async (req, res) => {
     }
 
     const products = await Product.findAll({
-      where,
+      where: { 
+        ...where, 
+        userId: {
+          [Op.or]: [req.user.id, '00000000-0000-0000-0000-000000000000']
+        }
+      },
       order: [['createdAt', 'DESC']]
     });
     return successResponse(res, products, 'Products retrieved successfully');
@@ -84,25 +89,51 @@ exports.getProductById = async (req, res) => {
 exports.updateProduct = async (req, res) => {
   try {
     const data = { ...req.body };
+    console.log('--- PRODUCT UPDATE ATTEMPT ---');
+    console.log('User ID:', req.user.id);
+    console.log('Target Product ID (Params):', req.params.id);
+    console.log('Update Data (Original):', JSON.stringify(req.body, null, 2));
 
     // Handle category object from frontend
     if (data.category && typeof data.category === 'object' && data.category.name) {
+      console.log('Transforming category object to string:', data.category.name);
       data.category = data.category.name;
     }
 
+    // Remove id from the data being updated! (Primary keys should not be updated)
+    if (data.id) {
+       console.log('Removing id from update payload:', data.id);
+       delete data.id;
+    }
+
+    const product = await Product.findOne({ where: { id: req.params.id } });
+    if (!product) {
+      console.warn('Product ID not found in database:', req.params.id);
+      return errorResponse(res, 'Product not found', 404);
+    }
+
+    if (product.userId !== req.user.id && product.userId !== '00000000-0000-0000-0000-000000000000') {
+      console.warn('Ownership mismatch. Product user:', product.userId, 'Current user:', req.user.id);
+      return errorResponse(res, 'Access denied. You do not own this product.', 403);
+    }
+
     const [updatedCount] = await Product.update(data, {
-      where: { id: req.params.id, userId: req.user.id }
+      where: { id: req.params.id } // Use ID only here, we checked ownership above
     });
 
-    if (updatedCount === 0) return errorResponse(res, 'Product not found', 404);
+    console.log('Updated Count:', updatedCount);
+
+    if (updatedCount === 0) {
+      console.log('No fields were changed during update');
+    }
     
-    const updatedProduct = await Product.findOne({ 
-      where: { id: req.params.id, userId: req.user.id } 
-    });
+    const updatedProduct = await Product.findByPk(req.params.id);
+    console.log('Successfully updated product');
     return successResponse(res, updatedProduct, 'Product updated successfully');
   } catch (error) {
     console.error('--- PRODUCT UPDATE ERROR ---');
     console.error('Error Message:', error.message);
+    console.error('Stack Trace:', error.stack);
     console.error('----------------------------');
     return errorResponse(res, 'Failed to update product', 400, error);
   }

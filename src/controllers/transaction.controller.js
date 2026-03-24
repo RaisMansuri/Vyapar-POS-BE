@@ -83,3 +83,47 @@ exports.getTransactionById = async (req, res) => {
     return errorResponse(res, 'Failed to retrieve transaction', 500, error);
   }
 };
+// Get transaction statistics
+exports.getTransactionStats = async (req, res) => {
+  try {
+    const transactions = await Transaction.findAll({
+      where: { userId: req.user.id }
+    });
+
+    const stats = {
+      totalVolume: 0,
+      upiVolume: 0,
+      cashVolume: 0,
+      cardVolume: 0,
+      refundVolume: 0,
+      totalCount: transactions.length,
+      completedCount: 0,
+      settledRate: 0
+    };
+
+    transactions.forEach(t => {
+      const amount = parseFloat(t.amount) || 0;
+      
+      if (t.status === 'Completed') {
+        stats.completedCount++;
+        if (t.type === 'Sale') {
+          stats.totalVolume += amount;
+          if (t.paymentMethod === 'UPI') stats.upiVolume += amount;
+          else if (t.paymentMethod === 'Cash') stats.cashVolume += amount;
+          else if (t.paymentMethod === 'Card') stats.cardVolume += amount;
+        } else if (t.type === 'Refund') {
+          stats.refundVolume += amount;
+        }
+      }
+    });
+
+    if (stats.totalCount > 0) {
+      stats.settledRate = parseFloat(((stats.completedCount / stats.totalCount) * 100).toFixed(1));
+    }
+
+    return successResponse(res, stats, 'Transaction statistics retrieved successfully');
+  } catch (error) {
+    console.error('Failed to get transaction stats:', error);
+    return errorResponse(res, 'Failed to get transaction statistics', 500, error);
+  }
+};

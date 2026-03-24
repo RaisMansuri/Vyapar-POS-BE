@@ -61,6 +61,10 @@ const Sale = sequelize.define('Sale', {
   dueDate: {
     type: DataTypes.DATE,
     allowNull: true
+  },
+  address: {
+    type: DataTypes.JSONB,
+    allowNull: true
   }
 }, {
   timestamps: true
