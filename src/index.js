@@ -33,7 +33,7 @@ app.use(morgan('dev'));
    ✅ ROOT ROUTE
 ======================= */
 app.get('/', (req, res) => {
-  res.send('POS Backend Running 🚀 (PostgreSQL Mode)');
+  res.send('POS Backend Running 🚀');
 });
 
 /* =======================
