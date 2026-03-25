@@ -17,16 +17,21 @@ const app = express();
 
 
 /* =======================
-   ✅ CORS CONFIGURATION (ROBUST MANUAL)
+   ✅ CORS CONFIGURATION (RESTRICTED MANUAL)
 ======================= */
+const allowedOrigins = [
+  "http://localhost:4200",
+  "https://vyapar-pos-git-development-raismansuri74059-1745s-projects.vercel.app"
+];
+
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   
-  // Always allow the origin by echoing it back
-  if (origin) {
+  if (allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
-  } else {
+  } else if (!origin) {
+    // For non-browser requests (like curl or postman)
     res.setHeader('Access-Control-Allow-Origin', '*');
   }
 
