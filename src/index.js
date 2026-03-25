@@ -23,12 +23,24 @@ const app = express();
 const allowedOrigins = [
   "http://localhost:4200",
   "https://vyapar-pos-git-development-raismansuri74059-1745s-projects.vercel.app",
-  "https://vyapar-pos-be-git-development-raismansuri74059-1745s-projects.vercel.app"
 ];
 
 app.use(cors({
-  origin: allowedOrigins,
+  origin: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-Skip-Loader",
+    "X-CSRF-Token",
+    "X-Requested-With",
+    "Accept",
+    "Accept-Version",
+    "Content-Length",
+    "Content-MD5",
+    "Date",
+    "X-Api-Version"
+  ],
   credentials: true
 }));
 
