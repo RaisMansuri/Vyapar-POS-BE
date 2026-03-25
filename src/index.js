@@ -20,10 +20,17 @@ const app = express();
 ======================= */
 const cors = require("cors");
 
-app.use(cors({
-  origin: true,
-  credentials: true
-}));
+const corsOptions = {
+  origin: true,           // mirrors request Origin — allows any origin
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+};
+
+app.use(cors(corsOptions));
+
+
+// CORS is already handled by the middleware above
 
 /* =======================
    ✅ DATABASE CONNECTION MIDDLEWARE
