@@ -46,6 +46,43 @@ app.use(cors({
 
 
 /* =======================
+   ✅ DATABASE CONNECTION MIDDLEWARE
+======================= */
+let isConnected = false;
+
+async function startServer() {
+  if (isConnected) return;
+  try {
+    await connectPostgres();
+    isConnected = true;
+  } catch (error) {
+    console.error('Database connection failed:', error);
+    throw error;
+  }
+}
+
+// Middleware to ensure DB connection before processing requests
+app.use(async (req, res, next) => {
+  try {
+    await startServer();
+    next();
+  } catch (error) {
+    // Add CORS headers manually for the error response (especially for Vercel)
+    const origin = req.headers.origin;
+    if (origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
+    
+    res.status(500).json({
+      status: 'Error',
+      message: 'Internal Server Error (Database Connection Failed)',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+/* =======================
    ✅ MIDDLEWARE
 ======================= */
 app.use(express.json());
@@ -109,23 +146,6 @@ app.use('/api/notifications', require('./routes/notification.routes'));
 app.use('/api/cart', require('./routes/cart.routes'));
 app.use('/api/upload', require('./routes/upload.routes'));
 
-/* =======================
-   ✅ POSTGRESQL CONNECTION
-======================= */
-let isConnected = false;
-
-async function startServer() {
-  if (isConnected) return;
-
-  try {
-    await connectPostgres();
-    isConnected = true;
-  } catch (error) {
-    console.error('Database connection failed:', error);
-    // Rethrow error so Vercel can handle it or local server can log it
-    throw error;
-  }
-}
 
 /* =======================
    ✅ EXPORT APP
@@ -137,11 +157,8 @@ module.exports = app;
 ======================= */
 if (process.env.NODE_ENV !== 'production') {
   const PORT = process.env.PORT || 5000;
-  app.listen(PORT, async () => {
-    await startServer();
+  app.listen(PORT, () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
+    // Database will connect on the first request via middleware
   });
 }
-
-// Export startServer for the Vercel entry point
-module.exports.startServer = startServer;
