@@ -9,6 +9,14 @@ module.exports = async (req, res) => {
     return app(req, res);
   } catch (error) {
     console.error('API Error:', error);
+    
+    // Add CORS headers to the error response
+    const origin = req.headers.origin;
+    if (origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
+
     res.status(500).json({
       status: 'Error',
       message: 'Internal Server Error (Database Connection Failed)',
