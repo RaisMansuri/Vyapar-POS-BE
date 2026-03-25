@@ -10,8 +10,8 @@ const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
 const { connectPostgres } = require('./config/db.config');
-const swaggerUi = require('swagger-ui-express');
-const swaggerSpec = require('./config/swagger.config');
+// const swaggerUi = require('swagger-ui-express');
+// const swaggerSpec = require('./config/swagger.config');
 
 const app = express();
 
@@ -65,8 +65,9 @@ app.get('/api/health', (req, res) => {
 });
 
 /* =======================
-   ✅ SWAGGER UI
+   ✅ SWAGGER UI (DISABLED)
 ======================= */
+/*
 const swaggerOptions = {
   customCssUrl: "https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/4.15.5/swagger-ui.min.css",
   customJs: [
@@ -75,6 +76,7 @@ const swaggerOptions = {
   ],
 };
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, swaggerOptions));
+*/
 
 /* =======================
    ✅ ROUTES
