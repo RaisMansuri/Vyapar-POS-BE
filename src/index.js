@@ -42,6 +42,7 @@ app.use(cors({
     "Content-Type",
     "Authorization",
     "X-Skip-Loader",
+    "X-Skip-Error-Toast",
     "X-CSRF-Token",
     "X-Requested-With",
     "Accept",
