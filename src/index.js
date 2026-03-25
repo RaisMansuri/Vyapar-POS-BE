@@ -22,7 +22,8 @@ const app = express();
 
 const allowedOrigins = [
   "http://localhost:4200",
-  "https://vyapar-pos-git-development-raismansuri74059-1745s-projects.vercel.app"
+  "https://vyapar-pos-git-development-raismansuri74059-1745s-projects.vercel.app",
+  "https://vyapar-pos-be-git-development-raismansuri74059-1745s-projects.vercel.app"
 ];
 
 app.use(cors({
