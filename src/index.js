@@ -7,7 +7,6 @@ require('dotenv').config({
   path: require('fs').existsSync(envPath) ? envPath : path.join(__dirname, '../.env')
 });
 const express = require('express');
-const cors = require('cors');
 const morgan = require('morgan');
 const { connectPostgres } = require('./config/db.config');
 // const swaggerUi = require('swagger-ui-express');
@@ -19,33 +18,43 @@ const app = express();
 /* =======================
    ✅ CORS CONFIGURATION (RESTRICTED MANUAL)
 ======================= */
+const cors = require("cors");
+
 const allowedOrigins = [
   "http://localhost:4200",
   "https://vyapar-pos-git-development-raismansuri74059-1745s-projects.vercel.app"
 ];
 
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-  } else if (!origin) {
-    // For non-browser requests (like curl or postman)
-    res.setHeader('Access-Control-Allow-Origin', '*');
-  }
+app.use(cors({
+  origin: function (origin, callback) {
 
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Skip-Error-Toast, X-Skip-Loader, X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Date, X-Api-Version');
+    // allow postman or server-to-server
+    if (!origin) return callback(null, true);
 
-  // Handle preflight (OPTIONS) requests immediately
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end();
-  }
-  
-  next();
-});
+    if (
+      allowedOrigins.includes(origin) ||
+      origin.includes("vercel.app")
+    ) {
+      return callback(null, true);
+    }
 
+    return callback(new Error("CORS not allowed"));
+  },
+
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-Skip-Error-Toast",
+    "X-Skip-Loader",
+    "X-CSRF-Token",
+    "X-Requested-With",
+    "Accept"
+  ],
+
+  credentials: true
+}));
 
 /* =======================
    ✅ DATABASE CONNECTION MIDDLEWARE
