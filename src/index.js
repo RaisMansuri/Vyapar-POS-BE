@@ -1,5 +1,11 @@
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '../.env') });
+const nodeEnv = process.env.NODE_ENV || 'local';
+const envPath = path.join(__dirname, `../.env.${nodeEnv}`);
+
+// Load the environment-specific file if it exists, otherwise fall back to .env
+require('dotenv').config({ 
+  path: require('fs').existsSync(envPath) ? envPath : path.join(__dirname, '../.env') 
+});
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
