@@ -1,42 +1,116 @@
-const app = require('../src/index');
+const path = require('path');
+const nodeEnv = process.env.NODE_ENV || 'local';
+const envPath = path.join(__dirname, `../.env.${nodeEnv}`);
 
-module.exports = async (req, res) => {
-  // 1. Explicitly handle CORS preflight (OPTIONS) requests
-  if (req.method === 'OPTIONS') {
-    const origin = req.headers.origin;
-    if (origin) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Access-Control-Allow-Credentials', 'true');
-    } else {
-      res.setHeader('Access-Control-Allow-Origin', '*');
-    }
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Skip-Error-Toast, X-Skip-Loader, X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Date, X-Api-Version');
-    return res.status(204).end();
+// Load the environment-specific file if it exists, otherwise fall back to .env
+require('dotenv').config({
+  path: require('fs').existsSync(envPath) ? envPath : path.join(__dirname, '../.env')
+});
+const express = require('express');
+const cors = require('cors');
+const morgan = require('morgan');
+const { connectPostgres } = require('../src/config/db.config');
+
+const app = express();
+
+/* =======================
+   ✅ CORS CONFIGURATION (ROBUST MANUAL)
+======================= */
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
   }
 
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Skip-Error-Toast, X-Skip-Loader, X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Date, X-Api-Version');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+  
+  next();
+});
+
+/* =======================
+   ✅ DATABASE CONNECTION LOGIC
+======================= */
+let isConnected = false;
+
+async function startServer() {
+  if (isConnected) return;
   try {
-    // 2. Ensure database is connected before handling the request
-    if (app.startServer) {
-      await app.startServer();
-    }
-    return app(req, res);
+    await connectPostgres();
+    isConnected = true;
   } catch (error) {
-    console.error('API Error:', error);
-    
-    // Add CORS headers to the error response
+    console.error('Database connection failed:', error);
+    throw error;
+  }
+}
+
+// Middleware to ensure DB connection before processing requests
+app.use(async (req, res, next) => {
+  try {
+    await startServer();
+    next();
+  } catch (error) {
     const origin = req.headers.origin;
     if (origin) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
-      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Skip-Loader, X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Date, X-Api-Version');
     }
-
     res.status(500).json({
       status: 'Error',
       message: 'Internal Server Error (Database Connection Failed)',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
-};
+});
+
+/* =======================
+   ✅ MIDDLEWARE
+======================= */
+app.use(express.json());
+app.use(morgan('dev'));
+
+/* =======================
+   ✅ ROOT ROUTE
+======================= */
+app.get('/', (req, res) => res.send('POS Backend Running 🚀'));
+app.get('/api', (req, res) => res.status(200).json({ status: 'OK', message: 'Vyapar POS API is live', version: '1.0.0' }));
+app.get('/api/health', (req, res) => res.status(200).json({ status: 'OK', message: 'Backend server is running with PostgreSQL' }));
+
+/* =======================
+   ✅ ROUTES (Relative to src)
+======================= */
+app.use('/api/auth', require('../src/routes/auth.routes'));
+app.use('/api/sales', require('../src/routes/sale.routes'));
+app.use('/api/products', require('../src/routes/product.routes'));
+app.use('/api/customers', require('../src/routes/customer.routes'));
+app.use('/api/tickets', require('../src/routes/ticket.routes'));
+app.use('/api/users', require('../src/routes/user.routes'));
+app.use('/api/expenses', require('../src/routes/expense.routes'));
+app.use('/api/categories', require('../src/routes/category.routes'));
+app.use('/api/reports', require('../src/routes/report.routes'));
+app.use('/api/marketing', require('../src/routes/marketing.routes'));
+app.use('/api/transactions', require('../src/routes/transaction.routes'));
+app.use('/api/ai', require('../src/routes/ai.routes'));
+app.use('/api/notifications', require('../src/routes/notification.routes'));
+app.use('/api/cart', require('../src/routes/cart.routes'));
+app.use('/api/upload', require('../src/routes/upload.routes'));
+
+/* =======================
+   ✅ EXPORT / START
+======================= */
+module.exports = app;
+
+if (process.env.NODE_ENV !== 'production') {
+  const PORT = process.env.PORT || 5000;
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running on http://localhost:${PORT}`);
+  });
+}
