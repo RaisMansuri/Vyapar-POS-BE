@@ -15,6 +15,7 @@ const sanitizeUser = (user) => ({
   city: user.city,
   state: user.state,
   pincode: user.pincode,
+  avatarUrl: user.avatarUrl,
   createdAt: user.createdAt,
   updatedAt: user.updatedAt
 });
@@ -120,6 +121,7 @@ exports.updateUser = async (req, res) => {
     if (req.body.aiApiKey !== undefined) user.aiApiKey = req.body.aiApiKey;
     if (req.body.aiModel !== undefined) user.aiModel = req.body.aiModel;
     if (req.body.upiId !== undefined) user.upiId = req.body.upiId;
+    if (req.body.avatarUrl !== undefined) user.avatarUrl = req.body.avatarUrl;
 
     await user.save();
 
@@ -176,6 +178,7 @@ exports.updateCurrentUser = async (req, res) => {
     if (req.body.aiApiKey !== undefined) user.aiApiKey = req.body.aiApiKey;
     if (req.body.aiModel !== undefined) user.aiModel = req.body.aiModel;
     if (req.body.upiId !== undefined) user.upiId = req.body.upiId;
+    if (req.body.avatarUrl !== undefined) user.avatarUrl = req.body.avatarUrl;
 
     await user.save();
 
