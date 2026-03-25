@@ -20,17 +20,26 @@ const app = express();
 ======================= */
 const cors = require("cors");
 
-const corsOptions = {
-  origin: true,           // mirrors request Origin — allows any origin
+app.use(cors({
+  origin: function (origin, callback) {
+    callback(null, true);
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-};
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Skip-Loader', 'X-Skip-Error-Toast'],
+}));
 
-app.use(cors(corsOptions));
-
-
-// CORS is already handled by the middleware above
+// Handle OPTIONS preflight BEFORE DB middleware
+app.use(function (req, res, next) {
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,X-Skip-Loader,X-Skip-Error-Toast');
+    return res.sendStatus(200);
+  }
+  next();
+});
 
 /* =======================
    ✅ DATABASE CONNECTION MIDDLEWARE
