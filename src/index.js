@@ -21,7 +21,11 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
+    // Allow all origins in development or if it matches the Vercel preview pattern
+    if (!origin || 
+        process.env.NODE_ENV !== 'production' || 
+        allowedOrigins.includes(origin) || 
+        origin.endsWith('.vercel.app')) {
       callback(null, true);
     } else {
       callback(new Error("CORS not allowed"));
@@ -108,7 +112,8 @@ async function startServer() {
     isConnected = true;
   } catch (error) {
     console.error('Database connection failed:', error);
-    process.exit(1);
+    // Rethrow error so Vercel can handle it or local server can log it
+    throw error;
   }
 }
 
