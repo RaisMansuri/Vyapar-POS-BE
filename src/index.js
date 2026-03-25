@@ -17,31 +17,29 @@ const app = express();
 
 
 /* =======================
-   ✅ CORS CONFIGURATION
+   ✅ CORS CONFIGURATION (ROBUST MANUAL)
 ======================= */
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  
+  // Always allow the origin by echoing it back
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
 
-const allowedOrigins = [
-  "http://localhost:4200",
-  "https://vyapar-pos-git-development-raismansuri74059-1745s-projects.vercel.app",
-];
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Skip-Error-Toast, X-Skip-Loader, X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Date, X-Api-Version');
 
-app.use(cors({
-  origin: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: [
-    "Content-Type",
-    "Authorization",
-    "X-Skip-Loader",
-    "X-CSRF-Token",
-    "X-Requested-With",
-    "Accept",
-    "Accept-Version",
-    "Content-Length",
-    "Content-MD5",
-    "Date",
-    "X-Api-Version"
-  ]
-}));
+  // Handle preflight (OPTIONS) requests immediately
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+  
+  next();
+});
 
 
 /* =======================
