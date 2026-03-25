@@ -22,24 +22,23 @@ const cors = require("cors");
 
 app.use(cors({
   origin: function (origin, callback) {
-    callback(null, true);
+    // Allow requests from your frontend origin
+    const allowedOrigins = [
+      'https://vyapar-pos-git-development-raismansuri74059-1745s-projects.vercel.app',
+      'http://localhost:3000', // For local development
+      'http://localhost:4200'  // If you use Angular locally
+    ];
+
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Skip-Loader', 'X-Skip-Error-Toast'],
 }));
-
-// Handle OPTIONS preflight BEFORE DB middleware
-app.use(function (req, res, next) {
-  if (req.method === 'OPTIONS') {
-    res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,X-Skip-Loader,X-Skip-Error-Toast');
-    return res.sendStatus(200);
-  }
-  next();
-});
 
 /* =======================
    ✅ DATABASE CONNECTION MIDDLEWARE
