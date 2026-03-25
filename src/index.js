@@ -20,39 +20,8 @@ const app = express();
 ======================= */
 const cors = require("cors");
 
-const allowedOrigins = [
-  "http://localhost:4200",
-  "https://vyapar-pos-git-development-raismansuri74059-1745s-projects.vercel.app"
-];
-
 app.use(cors({
-  origin: function (origin, callback) {
-
-    // allow postman or server-to-server
-    if (!origin) return callback(null, true);
-
-    if (
-      allowedOrigins.includes(origin) ||
-      origin.includes("vercel.app")
-    ) {
-      return callback(null, true);
-    }
-
-    return callback(new Error("CORS not allowed"));
-  },
-
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-
-  allowedHeaders: [
-    "Content-Type",
-    "Authorization",
-    "X-Skip-Error-Toast",
-    "X-Skip-Loader",
-    "X-CSRF-Token",
-    "X-Requested-With",
-    "Accept"
-  ],
-
+  origin: true,
   credentials: true
 }));
 

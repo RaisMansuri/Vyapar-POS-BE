@@ -1,20 +1,15 @@
-const app = require('../src/index');
+const app = require("../src/index");
 
 module.exports = async (req, res) => {
 
   const origin = req.headers.origin;
 
-  // allow localhost + any vercel deployment
-  if (
-    origin &&
-    (
-      origin.includes("localhost") ||
-      origin.includes("vercel.app")
-    )
-  ) {
+  /* allow frontend domain */
+  if (origin) {
     res.setHeader("Access-Control-Allow-Origin", origin);
-    res.setHeader("Access-Control-Allow-Credentials", "true");
   }
+
+  res.setHeader("Access-Control-Allow-Credentials", "true");
 
   res.setHeader(
     "Access-Control-Allow-Methods",
@@ -23,17 +18,16 @@ module.exports = async (req, res) => {
 
   res.setHeader(
     "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, X-Skip-Error-Toast, X-Skip-Loader, X-CSRF-Token, X-Requested-With, Accept"
+    "Content-Type, Authorization, X-Skip-Loader, X-Skip-Error-Toast"
   );
 
-  // handle preflight request
+  /* VERY IMPORTANT */
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
 
   try {
 
-    // ensure DB connected
     if (app.startServer) {
       await app.startServer();
     }
@@ -42,12 +36,12 @@ module.exports = async (req, res) => {
 
   } catch (error) {
 
-    console.error("API error:", error);
+    console.error(error);
 
     return res.status(500).json({
-      status: "Error",
-      message: "Internal server error"
+      message: "Server error"
     });
 
   }
+
 };
