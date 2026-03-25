@@ -26,32 +26,8 @@ const allowedOrigins = [
 ];
 
 app.use(cors({
-  origin: function (origin, callback) {
-    // Allow all origins in development or if it matches the Vercel preview pattern
-    if (!origin ||
-      process.env.NODE_ENV !== 'production' ||
-      allowedOrigins.includes(origin) ||
-      origin.endsWith('https://vyapar-pos-git-development-raismansuri74059-1745s-projects.vercel.app')) {
-      callback(null, true);
-    } else {
-      callback(new Error("CORS not allowed"));
-    }
-  },
+  origin: allowedOrigins,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: [
-    "Content-Type",
-    "Authorization",
-    "X-Skip-Loader",
-    "X-Skip-Error-Toast",
-    "X-CSRF-Token",
-    "X-Requested-With",
-    "Accept",
-    "Accept-Version",
-    "Content-Length",
-    "Content-MD5",
-    "Date",
-    "X-Api-Version"
-  ],
   credentials: true
 }));
 
