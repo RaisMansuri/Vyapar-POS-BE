@@ -40,8 +40,7 @@ app.use(cors({
     "Content-MD5",
     "Date",
     "X-Api-Version"
-  ],
-  credentials: true
+  ]
 }));
 
 
@@ -73,7 +72,7 @@ app.use(async (req, res, next) => {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
     }
-    
+
     res.status(500).json({
       status: 'Error',
       message: 'Internal Server Error (Database Connection Failed)',
