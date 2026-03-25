@@ -1,16 +1,10 @@
 {
   "version": 2,
   "routes": [
-    { "src": "/api/(.*)", "dest": "/src/index.js" },
-    { "src": "/api-docs/(.*)", "dest": "/src/index.js" },
-    { "src": "/api-docs", "dest": "/src/index.js" },
-    { "src": "/api", "dest": "/src/index.js" },
-    { "src": "/(.*)", "dest": "/src/index.js" }
-  ],
-  "functions": {
-    "src/index.js": {
-      "memory": 1024,
-      "maxDuration": 10
-    }
-  }
+    { "src": "/api/(.*)", "dest": "/api/index.js" },
+    { "src": "/api-docs/(.*)", "dest": "/api/index.js" },
+    { "src": "/api-docs", "dest": "/api/index.js" },
+    { "src": "/api", "dest": "/api/index.js" },
+    { "src": "/(.*)", "dest": "/api/index.js" }
+  ]
 }
