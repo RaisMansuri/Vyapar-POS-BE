@@ -9,8 +9,8 @@ require('dotenv').config({
 const express = require('express');
 const morgan = require('morgan');
 const { connectPostgres } = require('./config/db.config');
-// const swaggerUi = require('swagger-ui-express');
-// const swaggerSpec = require('./config/swagger.config');
+const swaggerUi = require('swagger-ui-express');
+const swaggerSpec = require('./config/swagger.config');
 
 const app = express();
 
@@ -25,6 +25,7 @@ app.use(cors({
     // Allow requests from your frontend origin
     const allowedOrigins = [
       'https://vyapar-pos-git-development-raismansuri74059-1745s-projects.vercel.app',
+      'https://vyapar-pos.vercel.app',
       'http://localhost:3000', // For local development
       'http://localhost:4200'  // If you use Angular locally
     ];
@@ -109,9 +110,8 @@ app.get('/api/health', (req, res) => {
 });
 
 /* =======================
-   ✅ SWAGGER UI (DISABLED)
+   ✅ SWAGGER UI
 ======================= */
-/*
 const swaggerOptions = {
   customCssUrl: "https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/4.15.5/swagger-ui.min.css",
   customJs: [
@@ -120,7 +120,6 @@ const swaggerOptions = {
   ],
 };
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, swaggerOptions));
-*/
 
 /* =======================
    ✅ ROUTES
