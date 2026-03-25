@@ -17,6 +17,10 @@ const options = {
         url: 'http://localhost:5000',
         description: 'Development server',
       },
+      {
+        url: 'https://vyapar-pos-be-git-development-raismansuri74059-1745s-projects.vercel.app',
+        description: 'Production server',
+      },
     ],
     components: {
       securitySchemes: {
