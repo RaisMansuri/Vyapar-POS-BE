@@ -3,8 +3,8 @@ const nodeEnv = process.env.NODE_ENV || 'local';
 const envPath = path.join(__dirname, `../.env.${nodeEnv}`);
 
 // Load the environment-specific file if it exists, otherwise fall back to .env
-require('dotenv').config({ 
-  path: require('fs').existsSync(envPath) ? envPath : path.join(__dirname, '../.env') 
+require('dotenv').config({
+  path: require('fs').existsSync(envPath) ? envPath : path.join(__dirname, '../.env')
 });
 const express = require('express');
 const cors = require('cors');
@@ -26,19 +26,21 @@ const allowedOrigins = [
 ];
 
 app.use(cors({
-  origin: function (origin, callback) {
-    // Allow all origins in development or if it matches the Vercel preview pattern
-    if (!origin || 
-        process.env.NODE_ENV !== 'production' || 
-        allowedOrigins.includes(origin) || 
-        origin.endsWith('.vercel.app')) {
-      callback(null, true);
-    } else {
-      callback(new Error("CORS not allowed"));
-    }
-  },
+  origin: "*",
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Skip-Loader"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-Skip-Loader",
+    "X-CSRF-Token",
+    "X-Requested-With",
+    "Accept",
+    "Accept-Version",
+    "Content-Length",
+    "Content-MD5",
+    "Date",
+    "X-Api-Version"
+  ],
   credentials: true
 }));
 
