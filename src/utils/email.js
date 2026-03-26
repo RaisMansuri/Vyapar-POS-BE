@@ -1,46 +1,95 @@
 const nodemailer = require('nodemailer');
 
 /**
- * Send email utility
+ * Send email using Gmail SMTP only
  * @param {string} email - Recipient email
  * @param {string} subject - Email subject
  * @param {string} html - Email body in HTML
  */
+
 const sendEmail = async (email, subject, html) => {
+
   try {
-    // For development, you can use Mailtrap or Gmail with App Password
-    // These should be in your .env file
-    const port = Number(process.env.EMAIL_PORT) || 2525;
-    const host = process.env.EMAIL_HOST || 'smtp.mailtrap.io';
 
-    const transportConfig = {
-      host: host,
-      port: port
-    };
+    console.log('Using Gmail SMTP Service...');
+    console.log(`Email User: ${process.env.EMAIL_USER}`);
 
-    if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-      transportConfig.auth = {
+    const transporter = nodemailer.createTransport({
+
+      service: 'gmail',
+
+      auth: {
+
         user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-      };
-    }
 
-    const transporter = nodemailer.createTransport(transportConfig);
+        pass: process.env.EMAIL_PASS
+
+      },
+
+      tls: {
+
+        rejectUnauthorized: false
+
+      }
+
+    });
+
 
     const mailOptions = {
-      from: `"Vyapar POS" <${process.env.EMAIL_FROM || 'no-reply@vyaparpos.com'}>`,
+
+      from:
+        process.env.EMAIL_FROM ||
+        `"Vyapar POS" <${process.env.EMAIL_USER}>`,
+
       to: email,
+
       subject: subject,
+
       html: html
+
     };
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log('Email sent:', info.messageId);
+
+    const info =
+      await transporter.sendMail(
+        mailOptions
+      );
+
+
+    console.log(
+      'Email sent successfully:',
+      info.messageId
+    );
+
+
     return info;
-  } catch (error) {
-    console.error('Email sending error:', error);
-    throw new Error('Failed to send email');
+
   }
+
+  catch (error) {
+
+    if (error.code === 'EAUTH') {
+
+      console.error('\n❌ Gmail SMTP Authentication Error');
+
+      console.error(
+        'Check App Password (must be 16 characters)'
+      );
+
+    }
+
+    console.error(
+      'Email sending error:',
+      error.message
+    );
+
+    throw new Error(
+      'Failed to send email'
+    );
+
+  }
+
 };
+
 
 module.exports = { sendEmail };

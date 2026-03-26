@@ -7,14 +7,28 @@ async function testEmail() {
   console.log('Port:', process.env.EMAIL_PORT);
   console.log('User:', process.env.EMAIL_USER);
 
-  const transportConfig = {
-    host: process.env.EMAIL_HOST || 'sandbox.smtp.mailtrap.io',
-    port: process.env.EMAIL_PORT || 2525,
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS
-    }
-  };
+  const host = process.env.EMAIL_HOST || 'sandbox.smtp.mailtrap.io';
+  const port = process.env.EMAIL_PORT || 2525;
+
+  let transportConfig;
+  if (host.includes('gmail.com')) {
+    transportConfig = {
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+      }
+    };
+  } else {
+    transportConfig = {
+      host: host,
+      port: port,
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+      }
+    };
+  }
 
   const transporter = nodemailer.createTransport(transportConfig);
 
@@ -38,7 +52,7 @@ async function testEmail() {
   } catch (error) {
     console.error('❌ Email Test Failed:');
     console.error(error);
-    
+
     if (error.code === 'EENVELOPE') {
       console.log('\n🔍 Probable cause: Invalid "from" or "to" address.');
     } else if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
@@ -46,7 +60,7 @@ async function testEmail() {
     } else if (error.command === 'AUTH') {
       console.log('\n🔍 Probable cause: Invalid SMTP credentials (User/Pass).');
     }
-    
+
     process.exit(1);
   }
 }
