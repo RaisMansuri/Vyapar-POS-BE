@@ -1,15 +1,15 @@
 const express = require('express');
 const router = express.Router();
 const expenseController = require('../controllers/expense.controller');
-const authMiddleware = require('../middleware/auth.middleware');
+const { protect, authorize } = require('../middleware/auth.middleware');
 
 // All expense routes require authentication
-router.use(authMiddleware);
+router.use(protect);
 
-router.post('/', expenseController.createExpense);
-router.get('/', expenseController.getExpenses);
-router.get('/stats', expenseController.getExpenseStats);
-router.put('/:id', expenseController.updateExpense);
-router.delete('/:id', expenseController.deleteExpense);
+router.post('/', authorize('admin', 'manager', 'accountant'), expenseController.createExpense);
+router.get('/', authorize('admin', 'manager', 'accountant'), expenseController.getExpenses);
+router.get('/stats', authorize('admin', 'manager', 'accountant'), expenseController.getExpenseStats);
+router.put('/:id', authorize('admin', 'manager', 'accountant'), expenseController.updateExpense);
+router.delete('/:id', authorize('admin', 'manager', 'accountant'), expenseController.deleteExpense);
 
 module.exports = router;

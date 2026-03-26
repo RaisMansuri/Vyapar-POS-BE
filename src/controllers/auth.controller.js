@@ -52,9 +52,11 @@ const register = async (req, res) => {
     }
 
     // Generate token for direct login
-    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET || 'secret_key', {
-      expiresIn: '24h'
-    });
+    const token = jwt.sign(
+      { id: user.id, role: user.role }, 
+      process.env.JWT_SECRET || 'secret_key', 
+      { expiresIn: '24h' }
+    );
 
     return successResponse(res, {
       token,
@@ -63,6 +65,8 @@ const register = async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
+        status: user.status || 'Active',
+        permissions: user.permissions || [],
         phone: user.phone
       }
     }, 'Registration successful. You are now logged in.', 201);
@@ -170,9 +174,11 @@ const login = async (req, res) => {
     }
 
     // Generate token
-    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET || 'secret_key', {
-      expiresIn: '24h'
-    });
+    const token = jwt.sign(
+      { id: user.id, role: user.role }, 
+      process.env.JWT_SECRET || 'secret_key', 
+      { expiresIn: '24h' }
+    );
 
     return successResponse(res, {
       token,

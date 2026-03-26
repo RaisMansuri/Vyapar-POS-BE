@@ -7,6 +7,8 @@ const sanitizeUser = (user) => ({
   email: user.email,
   phone: user.phone,
   role: user.role,
+  status: user.status || 'Active',
+  permissions: user.permissions || [],
   isVerified: user.isVerified,
   aiApiKey: user.aiApiKey,
   aiModel: user.aiModel,
@@ -22,7 +24,7 @@ const sanitizeUser = (user) => ({
 
 exports.createUser = async (req, res) => {
   try {
-    const { name, email, password, phone, role, isVerified } = req.body;
+    const { name, email, password, phone, role, status, permissions, isVerified } = req.body;
 
     if (!name || !email || !password) {
       return errorResponse(res, 'Name, email, and password are required', 400);
@@ -39,6 +41,8 @@ exports.createUser = async (req, res) => {
       password,
       phone,
       role: role || 'Staff',
+      status: status || 'Active',
+      permissions: permissions || [],
       isVerified: typeof isVerified === 'boolean' ? isVerified : true
     });
 
@@ -71,7 +75,9 @@ exports.getUsers = async (req, res) => {
       attributes: { exclude: ['password'] },
       order: [['createdAt', 'DESC']]
     });
-    return successResponse(res, users, 'Users retrieved successfully');
+
+    const sanitizedUsers = users.map(user => sanitizeUser(user));
+    return successResponse(res, sanitizedUsers, 'Users retrieved successfully');
   } catch (error) {
     return errorResponse(res, 'Failed to retrieve users', 500, error);
   }
@@ -86,7 +92,7 @@ exports.getUserById = async (req, res) => {
       return errorResponse(res, 'User not found', 404);
     }
 
-    return successResponse(res, user, 'User retrieved successfully');
+    return successResponse(res, sanitizeUser(user), 'User retrieved successfully');
   } catch (error) {
     return errorResponse(res, 'Failed to retrieve user', 500, error);
   }
@@ -94,9 +100,10 @@ exports.getUserById = async (req, res) => {
 
 exports.updateUser = async (req, res) => {
   try {
-    const { name, email, password, phone, role, isVerified } = req.body;
-    const user = await User.findByPk(req.params.id);
+    const { id } = req.params;
+    const { name, email, password, phone, role, status, permissions, isVerified } = req.body;
 
+    const user = await User.findByPk(id);
     if (!user) {
       return errorResponse(res, 'User not found', 404);
     }
@@ -112,6 +119,8 @@ exports.updateUser = async (req, res) => {
     if (name !== undefined) user.name = name;
     if (phone !== undefined) user.phone = phone;
     if (role !== undefined) user.role = role;
+    if (status !== undefined) user.status = status;
+    if (permissions !== undefined) user.permissions = permissions;
     if (typeof isVerified === 'boolean') user.isVerified = isVerified;
     if (password) user.password = password;
     if (req.body.address !== undefined) user.address = req.body.address;

@@ -29,5 +29,33 @@ const authMiddleware = (req, res, next) => {
   }
 };
 
+/**
+ * Middleware to restrict access based on user roles
+ * @param {...string} roles - Allowed roles
+ */
+const authorize = (...roles) => {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({ message: 'User not authenticated' });
+    }
+
+    const userRole = (req.user.role || 'guest').toLowerCase();
+
+    // Super Admin and Owner always have access
+    if (userRole === 'superadmin' || userRole === 'owner') {
+      return next();
+    }
+
+    if (roles.length > 0 && !roles.includes(userRole)) {
+      return res.status(403).json({
+        message: `Role (${userRole}) is not authorized to access this route`
+      });
+    }
+
+    next();
+  };
+};
+
 module.exports = authMiddleware;
 module.exports.protect = authMiddleware;
+module.exports.authorize = authorize;
