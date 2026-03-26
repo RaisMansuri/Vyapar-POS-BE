@@ -22,9 +22,25 @@ const generateTransactionId = async (userId) => {
 // Create a transaction
 exports.recordTransaction = async (data) => {
   try {
+    // Normalize paymentMethod for Enum validation
+    let normalizedPaymentMethod = data.paymentMethod;
+    if (data.paymentMethod && typeof data.paymentMethod === 'string') {
+      const pm = data.paymentMethod.toLowerCase();
+      if (pm === 'upi') normalizedPaymentMethod = 'UPI';
+      else if (pm === 'cash') normalizedPaymentMethod = 'Cash';
+      else if (pm === 'card') normalizedPaymentMethod = 'Card';
+      else if (pm === 'wallet') normalizedPaymentMethod = 'Wallet';
+      else if (pm === 'mixed') normalizedPaymentMethod = 'Mixed';
+      else {
+          // Capitalize first letter as fallback
+          normalizedPaymentMethod = pm.charAt(0) ? pm.charAt(0).toUpperCase() + pm.slice(1) : pm;
+      }
+    }
+
     const transactionId = await generateTransactionId(data.userId);
     const transactionData = {
       ...data,
+      paymentMethod: normalizedPaymentMethod,
       transactionId,
       timestamp: data.timestamp || new Date()
     };

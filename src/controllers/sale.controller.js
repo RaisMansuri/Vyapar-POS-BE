@@ -172,7 +172,7 @@ exports.createSale = async (req, res) => {
       await transactionController.recordTransaction({
         type: 'Sale',
         amount: computedTotalAmount,
-        paymentMethod: paymentMethod,
+        paymentMethod: normalizedPaymentMethod,
         status: 'Completed',
         referenceId: savedSale.id,
         referenceModel: 'Sale',

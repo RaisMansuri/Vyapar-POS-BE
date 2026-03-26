@@ -35,7 +35,7 @@ const Sale = sequelize.define('Sale', {
     defaultValue: 0
   },
   paymentMethod: {
-    type: DataTypes.ENUM('Cash', 'Card', 'UPI', 'Other'),
+    type: DataTypes.ENUM('Cash', 'Card', 'UPI', 'Wallet', 'Other'),
     defaultValue: 'Cash'
   },
   processedBy: {
