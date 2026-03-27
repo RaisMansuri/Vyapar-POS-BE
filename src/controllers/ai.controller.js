@@ -42,9 +42,9 @@ class AiController {
       });
     }
 
-    const apiKey = user.aiApiKey || process.env.GROQ_API_KEY;
-    const model = user.aiModel || process.env.GROQ_MODEL || "llama-3.1-8b-instant";
-    const shopUpiId = user.upiId || "raismansuri74059@okaxis"; // Fallback UPI
+    const apiKey = (user.aiApiKey || process.env.GROQ_API_KEY || "").trim();
+    const model = (user.aiModel || process.env.GROQ_MODEL || "llama-3.1-8b-instant").trim();
+    const shopUpiId = (user.upiId || "raismansuri74059@okaxis").trim(); // Fallback UPI
 
     const apiUrl = "https://api.groq.com/openai/v1/chat/completions";
 

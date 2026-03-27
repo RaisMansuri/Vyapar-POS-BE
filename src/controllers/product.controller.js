@@ -222,14 +222,29 @@ exports.getCategories = async (req, res) => {
 // Get low stock products
 exports.getLowStock = async (req, res) => {
   try {
+    console.log(`[LowStock] Fetching for user: ${req.user?.id}`);
+    
+    // Use Sequelize.where for more reliable column-to-column comparison
     const products = await Product.findAll({
       where: {
-        stock: { [Op.lte]: Sequelize.col('minStockLevel') },
-        userId: req.user.id
+        userId: req.user.id,
+        [Op.and]: [
+          Sequelize.where(
+            Sequelize.col('stock'),
+            Op.lte,
+            Sequelize.col('minStockLevel')
+          )
+        ]
       }
     });
+
+    console.log(`[LowStock] Found ${products.length} products`);
     return successResponse(res, products, 'Low stock products retrieved successfully');
   } catch (error) {
+    console.error('--- LOW STOCK ERROR ---');
+    console.error('Error Message:', error.message);
+    console.error('Stack Trace:', error.stack);
+    console.error('-----------------------');
     return errorResponse(res, 'Failed to retrieve low stock products', 500, error);
   }
 };
