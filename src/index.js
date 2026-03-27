@@ -139,6 +139,7 @@ app.use('/api/ai', require('./routes/ai.routes'));
 app.use('/api/notifications', require('./routes/notification.routes'));
 app.use('/api/cart', require('./routes/cart.routes'));
 app.use('/api/upload', require('./routes/upload.routes'));
+app.use('/api/audit', require('./routes/audit.routes'));
 
 
 /* =======================
@@ -151,9 +152,13 @@ module.exports = app;
 ======================= */
 if (process.env.NODE_ENV !== 'production') {
   const PORT = process.env.PORT || 5000;
-  app.listen(PORT, () => {
+  app.listen(PORT, async () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
-    // Database will connect on the first request via middleware
+    try {
+      await startServer();
+    } catch (err) {
+      console.error('Failed to connect to database at startup:', err.message);
+    }
   });
 }
 

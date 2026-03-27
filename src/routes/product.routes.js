@@ -50,6 +50,7 @@ router.use(protect);
  */
 router.post('/', productController.createProduct);
 router.get('/', productController.getProducts);
+router.get('/inventory', productController.getInventory);
 
 /**
  * @swagger

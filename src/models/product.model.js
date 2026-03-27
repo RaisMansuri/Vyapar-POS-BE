@@ -44,6 +44,20 @@ const Product = sequelize.define('Product', {
     type: DataTypes.STRING,
     allowNull: true
   },
+  gstRate: {
+    type: DataTypes.DECIMAL(5, 2),
+    allowNull: false,
+    defaultValue: 0
+  },
+  unit: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    defaultValue: 'pcs'
+  },
+  description: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
   imageUrl: {
     type: DataTypes.STRING,
     allowNull: true

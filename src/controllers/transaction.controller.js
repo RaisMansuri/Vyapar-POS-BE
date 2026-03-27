@@ -29,11 +29,9 @@ exports.recordTransaction = async (data) => {
       if (pm === 'upi') normalizedPaymentMethod = 'UPI';
       else if (pm === 'cash') normalizedPaymentMethod = 'Cash';
       else if (pm === 'card') normalizedPaymentMethod = 'Card';
-      else if (pm === 'wallet') normalizedPaymentMethod = 'Wallet';
-      else if (pm === 'mixed') normalizedPaymentMethod = 'Mixed';
       else {
-          // Capitalize first letter as fallback
-          normalizedPaymentMethod = pm.charAt(0) ? pm.charAt(0).toUpperCase() + pm.slice(1) : pm;
+          // Default to Cash or capitalize first letter as fallback
+          normalizedPaymentMethod = pm.charAt(0) ? pm.charAt(0).toUpperCase() + pm.slice(1) : 'Cash';
       }
     }
 

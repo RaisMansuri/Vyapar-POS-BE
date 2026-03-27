@@ -339,6 +339,7 @@ class AiController {
       todaySales: totalSales,
       todayExpenses: totalExpenses,
       todayProfit: totalSales - totalExpenses,
+      profitMargin: totalSales > 0 ? (((totalSales - totalExpenses) / totalSales) * 100).toFixed(2) + '%' : '0%',
       saleCount: sales.length
     };
   }
@@ -391,7 +392,22 @@ class AiController {
     const last30Days = new Date();
     last30Days.setDate(last30Days.getDate() - 30);
     const sales = await Sale.findAll({ where: { timestamp: { [Op.gte]: last30Days }, userId }, raw: true });
-    return { count: sales.length }; // Simplified for now
+    
+    // Aggregate product frequency
+    const productCounts = {};
+    sales.forEach(sale => {
+      (sale.items || []).forEach(item => {
+        const name = item.name || 'Unknown';
+        productCounts[name] = (productCounts[name] || 0) + (item.quantity || 1);
+      });
+    });
+
+    const trending = Object.entries(productCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([name, count]) => ({ name, count }));
+
+    return { totalRecentSales: sales.length, top3: trending };
   }
 
   static async getProductPriceStats(userId) {

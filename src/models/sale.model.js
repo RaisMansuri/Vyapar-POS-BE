@@ -35,7 +35,7 @@ const Sale = sequelize.define('Sale', {
     defaultValue: 0
   },
   paymentMethod: {
-    type: DataTypes.ENUM('Cash', 'Card', 'UPI', 'Wallet', 'Other'),
+    type: DataTypes.ENUM('Cash', 'Card', 'UPI'),
     defaultValue: 'Cash'
   },
   processedBy: {
@@ -65,6 +65,30 @@ const Sale = sequelize.define('Sale', {
   address: {
     type: DataTypes.JSONB,
     allowNull: true
+  },
+  customerId: {
+    type: DataTypes.UUID,
+    allowNull: true
+  },
+  subTotal: {
+    type: DataTypes.DECIMAL(10, 2),
+    defaultValue: 0
+  },
+  deliveryFee: {
+    type: DataTypes.DECIMAL(10, 2),
+    defaultValue: 0
+  },
+  cgst: {
+    type: DataTypes.DECIMAL(10, 2),
+    defaultValue: 0
+  },
+  sgst: {
+    type: DataTypes.DECIMAL(10, 2),
+    defaultValue: 0
+  },
+  igst: {
+    type: DataTypes.DECIMAL(10, 2),
+    defaultValue: 0
   }
 }, {
   timestamps: true

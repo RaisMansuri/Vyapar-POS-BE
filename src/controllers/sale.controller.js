@@ -5,6 +5,7 @@ const { Op, Sequelize } = require('sequelize');
 const { successResponse, errorResponse } = require('../utils/response');
 const { sendEmail } = require('../utils/email');
 const { getInvoiceEmailTemplate } = require('../utils/emailTemplates');
+const { recordAudit } = require('../services/audit.service');
 
 const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -79,6 +80,7 @@ const normalizeSaleItems = async (items = [], userId) => Promise.all(
       quantity,
       price,
       costPrice,
+      gstRate: product ? (product.gstRate || 0) : 0,
       total,
       category: await resolveProductCategory(item, userId)
     };
@@ -88,7 +90,11 @@ const normalizeSaleItems = async (items = [], userId) => Promise.all(
 // Create a new sale
 exports.createSale = async (req, res) => {
   try {
-    const { items, totalAmount, tax, discount, paymentMethod, processedBy, paymentStatus, amountPaid, dueDate, customerId, address } = req.body;
+    const { 
+      items, customerId, paymentMethod, tax, discount, totalAmount, amountPaid, 
+      processedBy, paymentStatus, dueDate, address,
+      subTotal, deliveryFee, cgst, sgst, igst
+    } = req.body;
     
     // Normalize paymentMethod for Enum validation
     let normalizedPaymentMethod = paymentMethod;
@@ -97,7 +103,9 @@ exports.createSale = async (req, res) => {
         if (pm === 'upi') normalizedPaymentMethod = 'UPI';
         else if (pm === 'cash') normalizedPaymentMethod = 'Cash';
         else if (pm === 'card') normalizedPaymentMethod = 'Card';
-        else if (pm === 'other') normalizedPaymentMethod = 'Other';
+        else normalizedPaymentMethod = 'Cash'; // Default fallback
+    } else {
+        normalizedPaymentMethod = 'Cash'; // Default fallback
     }
 
     const normalizedItems = await normalizeSaleItems(items, req.user.id);
@@ -110,6 +118,12 @@ exports.createSale = async (req, res) => {
     const computedTotalAmount = totalAmount !== undefined
       ? Number(totalAmount)
       : normalizedItems.reduce((sum, item) => sum + item.total, 0);
+    
+    // Auto-calculate tax if not provided
+    const computedTax = tax !== undefined 
+      ? Number(tax) 
+      : normalizedItems.reduce((sum, item) => sum + (item.total * (item.gstRate || 0) / 100), 0);
+
     const paidAmount = amountPaid !== undefined ? Number(amountPaid) : computedTotalAmount;
     const amountDue = computedTotalAmount - paidAmount;
 
@@ -122,7 +136,7 @@ exports.createSale = async (req, res) => {
       }
     }
 
-    // CRM+ Integration: Loyalty Points & Wallet
+    // CRM+ Integration: Loyalty Points
     if (customerId) {
         const customer = await Customer.findOne({ 
           where: { id: customerId, userId: req.user.id } 
@@ -132,15 +146,6 @@ exports.createSale = async (req, res) => {
             const pointsEarned = Math.floor(computedTotalAmount / 100);
             customer.loyaltyPoints += pointsEarned;
             
-            // Handle Wallet Payment
-            if (paymentMethod === 'Wallet') {
-                const totalAvailable = Number(customer.walletBalance || 0) + Number(customer.creditLimit || 0);
-                if (totalAvailable < computedTotalAmount) {
-                  return errorResponse(res, 'Insufficient wallet balance/credit limit', 400);
-                }
-                customer.walletBalance = Number(customer.walletBalance) - computedTotalAmount;
-            }
-            
             customer.totalSpent = Number(customer.totalSpent) + computedTotalAmount;
             customer.totalOrders += 1;
             customer.lastOrderDate = new Date();
@@ -148,11 +153,30 @@ exports.createSale = async (req, res) => {
         }
     }
 
+    // Associate with customer if provided or if user is a consumer
+    let customerIdToSave = customerId;
+    if (!customerIdToSave && req.user && (req.user.role || '').toLowerCase() === 'consumer') {
+      customerIdToSave = req.user.id;
+    }
+
+    if (customerIdToSave) {
+      try {
+        const customer = await Customer.findOne({ where: { id: customerIdToSave, userId: req.user.id } });
+        if (customer) {
+          customer.totalOrders += 1;
+          customer.lastOrderDate = new Date();
+          await customer.save();
+        }
+      } catch (custError) {
+        console.error('Customer update failed during sale:', custError);
+      }
+    }
+
     const savedSale = await Sale.create({
       saleNumber,
       items: normalizedItems,
       totalAmount: computedTotalAmount,
-      tax,
+      tax: computedTax,
       discount,
       paymentMethod: normalizedPaymentMethod,
       processedBy: processedBy || 'System',
@@ -161,9 +185,24 @@ exports.createSale = async (req, res) => {
       amountPaid: paidAmount,
       amountDue: amountDue,
       dueDate: dueDate || null,
-      customerId: customerId || null,
       address: address || null,
-      userId: req.user.id
+      userId: req.user.id,
+      customerId: customerIdToSave,
+      subTotal: subTotal || (computedTotalAmount - (tax || 0)),
+      deliveryFee: deliveryFee || 0,
+      cgst: cgst || 0,
+      sgst: sgst || 0,
+      igst: igst || 0
+    });
+
+    // Record Audit
+    await recordAudit({
+      userId: req.user.id,
+      action: 'CREATE_SALE',
+      entityType: 'Sale',
+      entityId: savedSale.id,
+      newValue: savedSale.toJSON(),
+      req
     });
 
     // Record Transaction
@@ -195,7 +234,12 @@ exports.createSale = async (req, res) => {
 exports.getSales = async (req, res) => {
   try {
     const { startDate, endDate, staff, paymentStatus, paymentMethod, category, product, search } = req.query;
-    const where = { userId: req.user.id };
+    const where = {
+      [Op.or]: [
+        { userId: req.user.id },
+        { customerId: req.user.id }
+      ]
+    };
 
     if (startDate && endDate) {
       where.timestamp = { [Op.between]: [new Date(startDate), new Date(endDate)] };
@@ -333,11 +377,16 @@ exports.getSalesStats = async (req, res) => {
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
+    const where = {
+      timestamp: { [Op.gte]: sevenDaysAgo },
+      [Op.or]: [
+        { userId: req.user.id },
+        { customerId: req.user.id }
+      ]
+    };
+    
     const salesByDay = await Sale.findAll({
-      where: { 
-        timestamp: { [Op.gte]: sevenDaysAgo },
-        userId: req.user.id
-      },
+      where,
       attributes: [
         [Sequelize.fn('DATE', Sequelize.col('timestamp')), 'day'],
         [Sequelize.fn('SUM', Sequelize.col('totalAmount')), 'revenue'],
@@ -376,10 +425,33 @@ exports.getSalesStats = async (req, res) => {
       raw: true
     });
 
+    // Today's Profit calculation
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const todaySales = await Sale.findAll({
+      where: {
+        userId: req.user.id,
+        timestamp: { [Op.gte]: startOfToday }
+      },
+      raw: true
+    });
+
+    let todayProfit = 0;
+    todaySales.forEach(sale => {
+      (sale.items || []).forEach(item => {
+        const profitPerItem = (Number(item.price || 0) - Number(item.costPrice || 0)) * Number(item.quantity || 1);
+        todayProfit += profitPerItem;
+      });
+    });
+
     return successResponse(res, {
       byDay: salesByDay.map(d => ({ _id: d.day, revenue: d.revenue, count: d.count })),
       byCategory: salesByCategory,
-      summary: overall || { totalOrders: 0, totalRevenue: 0 }
+      summary: overall ? { 
+        ...overall, 
+        todayProfit 
+      } : { totalOrders: 0, totalRevenue: 0, todayProfit: 0 }
     }, 'Sales stats retrieved successfully');
   } catch (error) {
     return errorResponse(res, 'Failed to retrieve sales stats', 500, error);

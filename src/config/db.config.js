@@ -19,20 +19,35 @@ const sequelize = new Sequelize(process.env.POSTGRES_URL, {
   }
 });
 
-const connectPostgres = async () => {
-  try {
-    await sequelize.authenticate();
-    console.log('PostgreSQL Connected successfully with Sequelize.');
-    
-    // Synchronize models (development only)
-    if (process.env.NODE_ENV !== 'production') {
-      await sequelize.sync({ alter: false });
-      console.log('Database synchronized.');
+let connectionPromise = null;
+
+const connectPostgres = async (retries = 3, delay = 2000) => {
+  if (connectionPromise) return connectionPromise;
+
+  connectionPromise = (async () => {
+    for (let i = 0; i < retries; i++) {
+      try {
+        await sequelize.authenticate();
+        console.log('PostgreSQL Connected successfully with Sequelize.');
+        
+        // Synchronize models (development only)
+        if (process.env.NODE_ENV !== 'production') {
+          await sequelize.sync({ alter: true });
+          console.log('Database synchronized.');
+        }
+        return true;
+      } catch (error) {
+        console.error(`PostgreSQL connection attempt ${i + 1} failed:`, error.message);
+        if (i === retries - 1) {
+          connectionPromise = null; // Reset on final failure to allow retry later
+          throw error;
+        }
+        await new Promise(res => setTimeout(res, delay));
+      }
     }
-  } catch (error) {
-    console.error('PostgreSQL connection error:', error);
-    throw error;
-  }
+  })();
+
+  return connectionPromise;
 };
 
 module.exports = { sequelize, connectPostgres };

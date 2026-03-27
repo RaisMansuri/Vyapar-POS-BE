@@ -31,6 +31,11 @@ const Expense = sequelize.define('Expense', {
   description: {
     type: DataTypes.TEXT,
     allowNull: true
+  },
+  paidBy: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    defaultValue: 'Admin'
   }
 }, {
   timestamps: true

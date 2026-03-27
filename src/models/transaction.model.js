@@ -18,7 +18,7 @@ const Transaction = sequelize.define('Transaction', {
     unique: true
   },
   type: {
-    type: DataTypes.ENUM('Sale', 'Expense', 'Refund', 'Wallet Top-up'),
+    type: DataTypes.ENUM('Sale', 'Expense', 'Refund'),
     allowNull: false
   },
   amount: {
@@ -26,7 +26,7 @@ const Transaction = sequelize.define('Transaction', {
     allowNull: false
   },
   paymentMethod: {
-    type: DataTypes.ENUM('Cash', 'Card', 'UPI', 'Wallet', 'Mixed'),
+    type: DataTypes.ENUM('Cash', 'Card', 'UPI'),
     allowNull: false
   },
   status: {

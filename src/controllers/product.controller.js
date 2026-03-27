@@ -1,6 +1,7 @@
 const Product = require('../models/product.model');
 const { Op, Sequelize } = require('sequelize');
 const { successResponse, errorResponse } = require('../utils/response');
+const { recordAudit } = require('../services/audit.service');
 
 const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -20,6 +21,17 @@ exports.createProduct = async (req, res) => {
     if (data.id) delete data.id;
 
     const product = await Product.create({ ...data, userId: req.user.id });
+    
+    // Record Audit
+    await recordAudit({
+      userId: req.user.id,
+      action: 'CREATE_PRODUCT',
+      entityType: 'Product',
+      entityId: product.id,
+      newValue: product.toJSON(),
+      req
+    });
+
     return successResponse(res, product, 'Product created successfully', 201);
   } catch (error) {
     console.error('--- PRODUCT CREATION ERROR ---');
@@ -72,6 +84,23 @@ exports.getProducts = async (req, res) => {
   }
 };
 
+// Get Inventory Products
+exports.getInventory = async (req, res) => {
+  try {
+    const products = await Product.findAll({
+      where: { 
+        userId: {
+          [Op.or]: [req.user.id, '00000000-0000-0000-0000-000000000000']
+        }
+      },
+      order: [['createdAt', 'DESC']]
+    });
+    return successResponse(res, products, 'Inventory products retrieved successfully');
+  } catch (error) {
+    return errorResponse(res, 'Failed to retrieve inventory products', 500, error);
+  }
+};
+
 // Get Product by ID
 exports.getProductById = async (req, res) => {
   try {
@@ -117,19 +146,29 @@ exports.updateProduct = async (req, res) => {
       return errorResponse(res, 'Access denied. You do not own this product.', 403);
     }
 
+    const oldValue = product.toJSON();
     const [updatedCount] = await Product.update(data, {
-      where: { id: req.params.id } // Use ID only here, we checked ownership above
+      where: { id: req.params.id }
     });
 
-    console.log('Updated Count:', updatedCount);
+    if (updatedCount > 0) {
+      const updatedProduct = await Product.findByPk(req.params.id);
+      
+      // Record Audit
+      await recordAudit({
+        userId: req.user.id,
+        action: 'UPDATE_PRODUCT',
+        entityType: 'Product',
+        entityId: req.params.id,
+        oldValue,
+        newValue: updatedProduct.toJSON(),
+        req
+      });
 
-    if (updatedCount === 0) {
-      console.log('No fields were changed during update');
+      return successResponse(res, updatedProduct, 'Product updated successfully');
     }
-    
-    const updatedProduct = await Product.findByPk(req.params.id);
-    console.log('Successfully updated product');
-    return successResponse(res, updatedProduct, 'Product updated successfully');
+
+    return successResponse(res, product, 'Product updated successfully (no changes)');
   } catch (error) {
     console.error('--- PRODUCT UPDATE ERROR ---');
     console.error('Error Message:', error.message);
@@ -142,10 +181,24 @@ exports.updateProduct = async (req, res) => {
 // Delete Product
 exports.deleteProduct = async (req, res) => {
   try {
-    const deletedCount = await Product.destroy({
+    const product = await Product.findOne({ where: { id: req.params.id, userId: req.user.id } });
+    if (!product) return errorResponse(res, 'Product not found', 404);
+    
+    const oldValue = product.toJSON();
+    await Product.destroy({
       where: { id: req.params.id, userId: req.user.id }
     });
-    if (deletedCount === 0) return errorResponse(res, 'Product not found', 404);
+
+    // Record Audit
+    await recordAudit({
+      userId: req.user.id,
+      action: 'DELETE_PRODUCT',
+      entityType: 'Product',
+      entityId: req.params.id,
+      oldValue,
+      req
+    });
+
     return successResponse(res, null, 'Product deleted successfully');
   } catch (error) {
     return errorResponse(res, 'Failed to delete product', 500, error);
