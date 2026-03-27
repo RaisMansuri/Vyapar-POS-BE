@@ -263,15 +263,14 @@ exports.getSales = async (req, res) => {
       ];
     }
 
-    // JSONB filtering for Postgres
-    if (category) {
+    // JSONB filtering for Postgres - combined to avoid overwriting
+    const itemFilter = {};
+    if (category) itemFilter.category = category;
+    if (product) itemFilter.name = product;
+    
+    if (Object.keys(itemFilter).length > 0) {
         where.items = {
-            [Op.contains]: [{ category }]
-        };
-    }
-    if (product) {
-        where.items = {
-            [Op.contains]: [{ name: product }]
+            [Op.contains]: [itemFilter]
         };
     }
 

@@ -120,14 +120,22 @@ exports.getTransactionStats = async (req, res) => {
       
       if (t.status === 'Completed') {
         stats.completedCount++;
+        // Count Sales, Expenses and Refunds towards method-specific volume
         if (t.type === 'Sale') {
           stats.totalVolume += amount;
-          if (t.paymentMethod === 'UPI') stats.upiVolume += amount;
-          else if (t.paymentMethod === 'Cash') stats.cashVolume += amount;
-          else if (t.paymentMethod === 'Card') stats.cardVolume += amount;
         } else if (t.type === 'Refund') {
           stats.refundVolume += amount;
+          stats.totalVolume -= amount; // Deduct refunds from total volume if appropriate
+        } else if (t.type === 'Expense') {
+          stats.totalVolume -= amount; // Deduct expenses from net volume or track separately
+          // We can add a totalExpenseVolume if needed
+          stats.expenseVolume = (stats.expenseVolume || 0) + amount;
         }
+
+        // Add to payment method buckets regardless of type (to show total flow per method)
+        if (t.paymentMethod === 'UPI') stats.upiVolume += amount;
+        else if (t.paymentMethod === 'Cash') stats.cashVolume += amount;
+        else if (t.paymentMethod === 'Card') stats.cardVolume += amount;
       }
     });
 
