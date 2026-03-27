@@ -313,7 +313,13 @@ exports.getSaleById = async (req, res) => {
       : { saleNumber: id };
 
     const sale = await Sale.findOne({ 
-      where: { ...queryWhere, userId: req.user.id } 
+      where: { 
+        ...queryWhere, 
+        [Op.or]: [
+          { userId: req.user.id },
+          { customerId: req.user.id }
+        ]
+      } 
     });
     if (!sale) {
       return errorResponse(res, 'Sale not found', 404);

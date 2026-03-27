@@ -80,12 +80,14 @@ class AiController {
         Example: {"action": {"type": "GENERATE_QR", "payload": {"amount": 100, "name": "VyaparPOS", "upiId": "${shopUpiId}"}}}
 
         PAYMENT SUCCESS FLOW:
-        - When the user says "I have completed the payment" or chooses a non-UPI method like "Card" or "Cash", simulate a success state.
-        - Respond with ACTION: {"type": "SHOW_INVOICE", "payload": {"orderId": "ORD-2024-XXXX", "total": 500, "pdfLink": "..."}}
+        - When the user says "I have completed the payment" or chooses a non-UPI method like "Card" or "Cash", the system will handle the transaction.
+        - You MUST look at 'ORDER CONTEXT (RECENT)' and find the actual order data.
+        - Respond with ACTION: {"type": "SHOW_INVOICE", "payload": {"orderId": "INSERT_ACTUAL_ID_HERE", "total": INSERT_ACTUAL_TOTAL_HERE}}
+        - Replace placeholders with the real 'orderId' and 'total' from the context.
         - Then ask: "Would you like me to send this invoice to your email?".
         
         INVOICE & EMAIL:
-        After payment success, always use SHOW_INVOICE first. Then offer SEND_INVOICE_EMAIL.
+        After payment success, always use SHOW_INVOICE first based on the actual latest order. Then offer SEND_INVOICE_EMAIL.
         
         COMMERCE CAPABILITIES & ACTIONS:
         - CONFIRMATION: {"message": "...", "onConfirm": "...", "onCancel": "..."}
@@ -94,8 +96,8 @@ class AiController {
         - ADD_TO_CART: {"products": [...]} 
         - NAVIGATE: "/cart"
         - SHOW_PAYMENT_METHODS: {"methods": ["UPI", "Card", "Cash"]}
-        - GENERATE_QR: {"amount": 500, "name": "...", "upiId": "${shopUpiId}"}
-        - SHOW_INVOICE: {"orderId": "...", "total": 0, "pdfLink": "..."}
+        - GENERATE_QR: {"amount": 0, "name": "...", "upiId": "${shopUpiId}"} // Use amount from LIVE current order
+        - SHOW_INVOICE: {"orderId": "...", "total": 0, "pdfLink": "..."} // USE REAL DATA FROM CONTEXT
         - SEND_INVOICE_EMAIL: {"orderId": "...", "email": "..."}
         - ADD_PRODUCT: {"name": "...", "category": "...", "price": 100, "stock": 50}
         - ADD_CATEGORY: {"name": "...", "description": "..."}
@@ -107,8 +109,10 @@ class AiController {
         1. ALWAYS wrap your actions in a single JSON block at the VERY END of your message.
         2. Format: ACTION: {"type": "ACTION_NAME", "payload": { ... }}
         3. NEVER include the JSON block inside your natural language sentences.
-        4. NEVER include any text, punctuation, or greetings AFTER the JSON block.
-        5. If you provide multiple actions, combine them into a single response if possible or prioritize the most relevant one.
+        4. NEVER repeat RAW JSON data (like IDs or full objects) from the context in your natural language response.
+        5. If a user wants to go to a page like "Cart" or "Dashboard", ALWAYS use the NAVIGATE action.
+        6. Keep your spoken response brief and human-friendly.
+        7. In your ACTION JSON payload, ALWAYS provide 'total' and 'amount' as plain numbers (e.g. 500) without any currency symbols (₹). The UI handles formatting.
         
         Example:
         "Sure, I'll add that to your cart. ACTION: {"type": "ADD_TO_CART", "payload": {"products": [...]}}"
@@ -176,7 +180,7 @@ class AiController {
       } else if (text.includes('expense') || text.includes('cost') || text.includes('spent')) {
         const expenses = await AiController.getExpenseStats(finalUserId);
         dataContext += `\nEXPENSE CONTEXT: ${JSON.stringify(expenses)}`;
-      } else if (text.includes('order') || text.includes('history') || text.includes('status')) {
+      } else if (text.includes('order') || text.includes('history') || text.includes('status') || text.includes('paid') || text.includes('payment') || text.includes('success') || text.includes('invoice')) {
         const orders = await AiController.getRecentOrders(finalUserId);
         dataContext += `\nORDER CONTEXT (RECENT): ${JSON.stringify(orders)}`;
       }
@@ -184,7 +188,8 @@ class AiController {
       // Frontend Context (Current Cart, etc.)
       let frontendContext = "";
       if (context && context.cart) {
-        frontendContext = `\nLIVE CART CONTEXT: Total: ₹${context.cart.total}, Count: ${context.cart.count}, Items: ${JSON.stringify(context.cart.items)}`;
+        const cartOverview = (context.cart.items || []).map(i => `${i.product?.name || 'Item'} (x${i.quantity})`).join(', ');
+        frontendContext = `\nLIVE CART CONTEXT: Total: ₹${context.cart.total}, Count: ${context.cart.count}, Items: ${cartOverview}`;
       }
 
       // Step 3: Call LLM API (Groq)
@@ -272,9 +277,9 @@ class AiController {
           action = actionObj.action || actionObj;
           cleanResponse = aiResponseContent.replace(actionData.fullMatch, '').trim();
 
-          // Cleanup common task prefixes
-          cleanResponse = cleanResponse.replace(/ACTION:\s*$/i, '').trim();
-          cleanResponse = cleanResponse.replace(/ACTION JSON:\s*$/i, '').trim();
+          // Cleanup common task prefixes anywhere in the text
+          cleanResponse = cleanResponse.replace(/ACTION:\s*/gi, '').trim();
+          cleanResponse = cleanResponse.replace(/ACTION JSON:\s*/gi, '').trim();
           cleanResponse = cleanResponse.replace(/[.;:!]\s*$/, '').trim();
         } catch (e) {
           console.error("Failed to parse action JSON from LLM:", e.message);
@@ -370,7 +375,38 @@ class AiController {
       limit: 3,
       raw: true
     });
-    return orders.map(o => ({ orderId: o.orderId, total: o.totalAmount, status: o.status || 'Success', date: o.timestamp }));
+    return orders.map(o => ({ 
+      orderId: o.id, 
+      total: Number(o.totalAmount), 
+      status: o.status || 'Success', 
+      date: o.timestamp 
+    }));
+  }
+
+  static async getSaleById(saleId, userId, customerId = null) {
+    const { Op } = require('sequelize');
+    const whereClause = {
+      id: saleId,
+      [Op.or]: [
+        { userId: userId },
+        { customerId: customerId }
+      ]
+    };
+    // If customerId is not provided, remove it from the OR condition
+    if (customerId === null) {
+      delete whereClause[Op.or][1];
+      // If only userId remains, simplify the Op.or
+      if (whereClause[Op.or].length === 1) {
+        whereClause.userId = userId;
+        delete whereClause[Op.or];
+      }
+    }
+
+    const sale = await Sale.findOne({
+      where: whereClause,
+      raw: true
+    });
+    return sale;
   }
 
   static async getTrendingProducts(userId) {
