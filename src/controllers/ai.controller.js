@@ -7,7 +7,7 @@ const User = require('../models/user.model');
 
 /**
  * Advanced AI Controller
- * Uses OpenRouter to parse intent and executes real DB queries.
+ * Uses Groq to parse intent and executes real DB queries.
  */
 class AiController {
 
@@ -46,21 +46,17 @@ class AiController {
     const model = user.aiModel || process.env.GROQ_MODEL || "llama-3.1-8b-instant";
     const shopUpiId = user.upiId || "raismansuri74059@okaxis"; // Fallback UPI
 
-    // Determine the provider based on the model name
-    const isOpenRouter = model.includes('/');
-    const apiUrl = isOpenRouter 
-      ? "https://openrouter.ai/api/v1/chat/completions"
-      : "https://api.groq.com/openai/v1/chat/completions";
+    const apiUrl = "https://api.groq.com/openai/v1/chat/completions";
 
     if (!apiKey) {
-      console.error(`[AI Chat] ${isOpenRouter ? 'OpenRouter' : 'Groq'} API Key is missing.`);
+      console.error(`[AI Chat] Groq API Key is missing.`);
       return res.status(500).json({
-        response: `AI Assistant is not configured. Please add an ${isOpenRouter ? 'OpenRouter' : 'Groq'} API key to your settings.`,
+        response: `AI Assistant is not configured. Please add a Groq API key to your settings.`,
         action: { type: 'HELP' }
       });
     }
 
-    console.log(`[AI Chat] Using ${isOpenRouter ? 'OpenRouter' : 'Groq'} model: ${model}`);
+    console.log(`[AI Chat] Using Groq model: ${model}`);
 
     try {
       // Step 1: System Prompt Preparation
@@ -191,23 +187,13 @@ class AiController {
         frontendContext = `\nLIVE CART CONTEXT: Total: ₹${context.cart.total}, Count: ${context.cart.count}, Items: ${JSON.stringify(context.cart.items)}`;
       }
 
-      // Step 3: Call LLM API (Groq/OpenRouter)
+      // Step 3: Call LLM API (Groq)
       const safeHistory = Array.isArray(history) ? history : [];
 
       const headers = {
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json"
       };
-
-      if (isOpenRouter) {
-        headers["HTTP-Referer"] = "https://vyapar-pos.vercel.app";
-        headers["X-Title"] = "Vyapar POS";
-        
-        // Basic check for Groq key being used for OpenRouter
-        if (apiKey.startsWith('gsk_')) {
-          console.warn("[AI Chat] Warning: Using a Groq (gsk_) key for an OpenRouter model.");
-        }
-      }
 
       const lLMResponse = await fetch(apiUrl, {
         method: "POST",
@@ -285,7 +271,7 @@ class AiController {
           const actionObj = JSON.parse(actionData.json);
           action = actionObj.action || actionObj;
           cleanResponse = aiResponseContent.replace(actionData.fullMatch, '').trim();
-          
+
           // Cleanup common task prefixes
           cleanResponse = cleanResponse.replace(/ACTION:\s*$/i, '').trim();
           cleanResponse = cleanResponse.replace(/ACTION JSON:\s*$/i, '').trim();
@@ -334,7 +320,7 @@ class AiController {
 
     const totalSales = sales.reduce((sum, s) => sum + Number(s.totalAmount || 0), 0);
     const totalExpenses = expenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
-    
+
     return {
       todaySales: totalSales,
       todayExpenses: totalExpenses,
@@ -392,7 +378,7 @@ class AiController {
     const last30Days = new Date();
     last30Days.setDate(last30Days.getDate() - 30);
     const sales = await Sale.findAll({ where: { timestamp: { [Op.gte]: last30Days }, userId }, raw: true });
-    
+
     // Aggregate product frequency
     const productCounts = {};
     sales.forEach(sale => {
