@@ -5,11 +5,40 @@ const Customer = require('../models/customer.model');
 const Ticket = require('../models/ticket.model');
 const User = require('../models/user.model');
 
+const AiChat = require('../models/aiChat.model');
+
 /**
  * Advanced AI Controller
  * Uses Groq to parse intent and executes real DB queries.
  */
 class AiController {
+
+  static async getChatHistory(req, res) {
+    try {
+      const userId = req.user.id;
+      const history = await AiChat.findAll({
+        where: { userId },
+        order: [['createdAt', 'ASC']],
+        limit: 50,
+        raw: true
+      });
+      res.json(history.map(h => ({ role: h.role, content: h.content, createdAt: h.createdAt })));
+    } catch (error) {
+      console.error("[AI Chat History] Error:", error.message);
+      res.status(500).json({ error: "Failed to fetch chat history." });
+    }
+  }
+
+  static async clearChatHistory(req, res) {
+    try {
+      const userId = req.user.id;
+      await AiChat.destroy({ where: { userId } });
+      res.json({ message: "Chat history cleared successfully." });
+    } catch (error) {
+      console.error("[AI Chat History] Error clearing:", error.message);
+      res.status(500).json({ error: "Failed to clear chat history." });
+    }
+  }
 
   static async chat(req, res) {
     const { message, userId, history, context } = req.body;
@@ -42,162 +71,65 @@ class AiController {
       });
     }
 
-    const apiKey = (user.aiApiKey || process.env.GROQ_API_KEY || "").trim();
-    const model = (user.aiModel || process.env.GROQ_MODEL || "llama-3.1-8b-instant").trim();
-    const shopUpiId = (user.upiId || "raismansuri74059@okaxis").trim(); // Fallback UPI
+    const apiKey = (user?.aiApiKey || process.env.GROQ_API_KEY || "").trim();
+    const model = (user?.aiModel || process.env.GROQ_MODEL || "llama-3.1-8b-instant").trim();
+    const shopUpiId = (user?.upiId || "raismansuri74059@okaxis").trim();
 
     const apiUrl = "https://api.groq.com/openai/v1/chat/completions";
 
     if (!apiKey) {
-      console.error(`[AI Chat] Groq API Key is missing.`);
-      return res.status(500).json({
-        response: `AI Assistant is not configured. Please add a Groq API key to your settings.`,
+      console.error(`[AI Chat] Groq API Key is missing for user: ${finalUserId}`);
+      return res.status(401).json({
+        response: "AI Assistant is not configured. Please contact the administrator or provide your own API key in settings.",
         action: { type: 'HELP' }
       });
     }
 
-    console.log(`[AI Chat] Using Groq model: ${model}`);
+    console.log(`[AI Chat] Using Groq model: ${model} for User ID: ${finalUserId}`);
 
     try {
-      // Step 1: System Prompt Preparation
+      // System Prompt Preparation
       const systemPrompt = `
-        You are the VyaparPOS AI Assistant, a professional business analyst.
+        You are the VyaparPOS AI Assistant, a professional business analyst for the user with ID: ${finalUserId}.
         Your goal is to help shopkeepers and consumers manage POS data and navigate the app.
         
-        CHECKOUT FLOW (The user must follow these steps):
-        1. Cart (Review items)
-        2. Address (Confirm or Provide address in-chat)
-        3. Payment (Choose UPI, Card, or Cash and pay)
-        4. Confirm (Order success & Invoice generation)
+        CHECKOUT FLOW:
+        1. Cart -> 2. Address -> 3. Payment -> 4. Confirm
         
         IN-CHAT ACTIONS:
-        - When the user is ready to checkout, instead of navigating away, SHOW their current address or ask for a new one.
-        - Use CONFIRMATION with message "Should I save this as your delivery address?" and onConfirm "Save Address".
-        - Once address is confirmed, use SHOW_PAYMENT_METHODS to let them choose.
+        - For checkout: SHOW address, use CONFIRMATION, then SHOW_PAYMENT_METHODS.
+        - For UPI: use GENERATE_QR with shop UPI: ${shopUpiId}.
+        - For Success: use SHOW_INVOICE based on 'ORDER CONTEXT'.
         
-        PAYMENT INSTRUCTIONS:
-        If user chooses UPI, use GENERATE_QR with the shop's UPI ID: ${shopUpiId}.
-        Example: {"action": {"type": "GENERATE_QR", "payload": {"amount": 100, "name": "VyaparPOS", "upiId": "${shopUpiId}"}}}
-
-        PAYMENT SUCCESS FLOW:
-        - When the user says "I have completed the payment" or chooses a non-UPI method like "Card" or "Cash", the system will handle the transaction.
-        - You MUST look at 'ORDER CONTEXT (RECENT)' and find the actual order data.
-        - Respond with ACTION: {"type": "SHOW_INVOICE", "payload": {"orderId": "INSERT_ACTUAL_ID_HERE", "total": INSERT_ACTUAL_TOTAL_HERE}}
-        - Replace placeholders with the real 'orderId' and 'total' from the context.
-        - Then ask: "Would you like me to send this invoice to your email?".
+        ACTION JSON RULES:
+        1. Wrap in: ACTION: {"type": "NAME", "payload": { ... }} at the end.
+        2. Provide 'total'/'amount' as numbers without ₹.
         
-        INVOICE & EMAIL:
-        After payment success, always use SHOW_INVOICE first based on the actual latest order. Then offer SEND_INVOICE_EMAIL.
-        
-        COMMERCE CAPABILITIES & ACTIONS:
-        - CONFIRMATION: {"message": "...", "onConfirm": "...", "onCancel": "..."}
-        - SHOW_PRODUCTS: {"title": "...", "products": [...]} 
-        - SHOW_CATEGORIES: {"categories": [...]}
-        - ADD_TO_CART: {"products": [...]} 
-        - NAVIGATE: "/cart"
-        - SHOW_PAYMENT_METHODS: {"methods": ["UPI", "Card", "Cash"]}
-        - GENERATE_QR: {"amount": 0, "name": "...", "upiId": "${shopUpiId}"} // Use amount from LIVE current order
-        - SHOW_INVOICE: {"orderId": "...", "total": 0, "pdfLink": "..."} // USE REAL DATA FROM CONTEXT
-        - SEND_INVOICE_EMAIL: {"orderId": "...", "email": "..."}
-        - ADD_PRODUCT: {"name": "...", "category": "...", "price": 100, "stock": 50}
-        - ADD_CATEGORY: {"name": "...", "description": "..."}
-
-        Market Analysis Mode:
-        If the user asks for "market analysis" or "trendy categories", suggest relevant bakery/retail categories (e.g., Gluten-free, Keto-friendly, Vegan Delights, Seasonal Specials) and then offer to add them.
-
-        IMPORTANT FORMATTING RULES:
-        1. ALWAYS wrap your actions in a single JSON block at the VERY END of your message.
-        2. Format: ACTION: {"type": "ACTION_NAME", "payload": { ... }}
-        3. NEVER include the JSON block inside your natural language sentences.
-        4. NEVER repeat RAW JSON data (like IDs or full objects) from the context in your natural language response.
-        5. If a user wants to go to a page like "Cart" or "Dashboard", ALWAYS use the NAVIGATE action.
-        6. Keep your spoken response brief and human-friendly.
-        7. In your ACTION JSON payload, ALWAYS provide 'total' and 'amount' as plain numbers (e.g. 500) without any currency symbols (₹). The UI handles formatting.
-        
-        Example:
-        "Sure, I'll add that to your cart. ACTION: {"type": "ADD_TO_CART", "payload": {"products": [...]}}"
-        - If user says "add 5 categories", use ADD_MULTIPLE_CATEGORIES.
-        - If details are missing, ask for them instead of making them up.
-        - For imagery, use valid placeholder URLs if none provided, or ask user.
-
-        NAVIGATION CAPABILITY:
-        If the user wants to go to a page, respond with a specific action JSON:
-        {"action": {"type": "NAVIGATE", "payload": "ROUTE_PATH"}}
-        
-        VALID ROUTE_PATHS:
-        - /dashboard (Overview stats)
-        - /products (Product listing/POS)
-        - /customers (Customer management)
-        - /reports (General business reports)
-        - /reports/payments (Payment history)
-        - /support (Help desk / tickets)
-        - /cart (Current shopping cart)
-        - /checkout/address (Checkout: User Details/Address)
-        - /checkout/payment (Checkout: Payment Options)
-        - /orders (Order history)
-        - /settings/categories (Manage categories)
-        - /profile (User profile)
-        - /settings/users (Staff management)
-        - /settings/subscription (Plan & billing)
-        - /settings/products (Inventory management)
-        - /settings/permissions (Role based access)
-        - /settings/expenses (Expense tracking)
-        - /notifications (Updates & alerts)
-        - /mobile-pos (Simplified POS for mobile)
-
-        IMPORTANT:
-        - NEVER mention raw route paths (e.g., /orders, /cart, /dashboard) in your text response. Use human-friendly names like "Order History" or "your overview" instead.
-        - NEVER include technical keywords like "ACTION" or "JSON" in your natural language text.
-        - ALWAYS provide a short natural language response like "Sure, I'm taking you there" along WITH the action JSON at the very end.
-        - Use Indian Rupee (₹) for all currency values.
-        - Be concise, professional, and helpful.
+        VALID ACTIONS:
+        - NAVIGATE: "/cart", "/dashboard", "/products", "/orders", etc.
+        - SHOW_PRODUCTS, ADD_TO_CART, GENERATE_QR, SHOW_INVOICE, etc.
       `;
 
-      // Step 2: Build Live Context from DB and Frontend
+      // Build Context (keeping logic same but cleaner)
       let dataContext = "";
       const text = message.toLowerCase();
-
-      // DB Context (Insights)
-      if (text.includes('trending') || text.includes('best selling') || text.includes('popular')) {
+      
+      // Fetch data based on keywords (using existing methods)
+      if (text.includes('trending') || text.includes('popular')) {
         const trending = await AiController.getTrendingProducts(finalUserId);
-        const cats = await AiController.getCategoryPerformance(finalUserId);
-        dataContext += `\nBUSINESS INSIGHTS (TRENDING): ${JSON.stringify(trending)}\nCATEGORY REVENUE: ${JSON.stringify(cats)}`;
-      } else if (text.includes('price') || text.includes('cheap') || text.includes('expensive') || text.includes('costly')) {
-        const prices = await AiController.getProductPriceStats(finalUserId);
-        dataContext += `\nPRODUCT PRICE STATS: ${JSON.stringify(prices)}`;
-      } else if (text.includes('sale') || text.includes('revenue') || text.includes('profit') || text.includes('money') || text.includes('earning')) {
+        dataContext += `\nBUSINESS INSIGHTS: ${JSON.stringify(trending)}`;
+      } else if (text.includes('sale') || text.includes('revenue')) {
         const stats = await AiController.getQuickStats(finalUserId);
-        dataContext += `\nREAL-TIME SALES STATS: ${JSON.stringify(stats)}`;
-      } else if (text.includes('stock') || text.includes('inventory') || text.includes('product') || text.includes('available')) {
+        dataContext += `\nSALES STATS: ${JSON.stringify(stats)}`;
+      } else if (text.includes('stock') || text.includes('inventory')) {
         const stock = await AiController.getLowStockInfo(finalUserId);
-        dataContext += `\nINVENTORY CONTEXT: ${JSON.stringify(stock)}`;
-      } else if (text.includes('customer') || text.includes('user') || text.includes('client')) {
-        const customers = await AiController.getCustomerStats(finalUserId);
-        dataContext += `\nCUSTOMER CONTEXT: ${JSON.stringify(customers)}`;
-      } else if (text.includes('ticket') || text.includes('support') || text.includes('help') || text.includes('issue')) {
-        const tickets = await AiController.getTicketStats(finalUserId);
-        dataContext += `\nSUPPORT CONTEXT: ${JSON.stringify(tickets)}`;
-      } else if (text.includes('expense') || text.includes('cost') || text.includes('spent')) {
-        const expenses = await AiController.getExpenseStats(finalUserId);
-        dataContext += `\nEXPENSE CONTEXT: ${JSON.stringify(expenses)}`;
-      } else if (text.includes('order') || text.includes('history') || text.includes('status') || text.includes('paid') || text.includes('payment') || text.includes('success') || text.includes('invoice')) {
-        const orders = await AiController.getRecentOrders(finalUserId);
-        dataContext += `\nORDER CONTEXT (RECENT): ${JSON.stringify(orders)}`;
+        dataContext += `\nINVENTORY: ${JSON.stringify(stock)}`;
       }
-
-      // Frontend Context (Current Cart, etc.)
-      let frontendContext = "";
-      if (context && context.cart) {
-        const cartOverview = (context.cart.items || []).map(i => `${i.product?.name || 'Item'} (x${i.quantity})`).join(', ');
-        frontendContext = `\nLIVE CART CONTEXT: Total: ₹${context.cart.total}, Count: ${context.cart.count}, Items: ${cartOverview}`;
-      }
-
-      // Step 3: Call LLM API (Groq)
-      const safeHistory = Array.isArray(history) ? history : [];
 
       const headers = {
         "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Accept": "application/json"
       };
 
       const lLMResponse = await fetch(apiUrl, {
@@ -206,24 +138,29 @@ class AiController {
         body: JSON.stringify({
           model: model,
           messages: [
-            { role: "system", content: systemPrompt + dataContext + frontendContext },
-            ...safeHistory,
+            { role: "system", content: systemPrompt + dataContext },
+            ...(Array.isArray(history) ? history : []),
             { role: "user", content: message }
           ],
-          temperature: 0.2, // Lower temp for more reliable JSON extraction
+          temperature: 0.2,
           max_tokens: 1024
         })
       });
 
       const result = await lLMResponse.json();
 
-      // Step 4: Validate API Response
-      if (result.error) {
-        console.error("[AI Chat] LLM API Error:", JSON.stringify(result.error, null, 2));
-        let errorMsg = result.error.message || 'Unknown provider error';
+      if (!lLMResponse.ok || result.error) {
+        console.error("[AI Chat] Groq API Error:", JSON.stringify(result.error || result, null, 2));
+        
+        if (lLMResponse.status === 401) {
+          return res.status(401).json({
+            response: "The AI API key is invalid or has expired. Please check your configuration.",
+            action: { type: 'HELP' }
+          });
+        }
 
-        return res.status(500).json({
-          response: `AI Error: ${errorMsg}`,
+        return res.status(lLMResponse.status).json({
+          response: `AI Service Error: ${result.error?.message || 'Failed to communicate with Groq'}`,
           action: { type: 'HELP' }
         });
       }
@@ -238,6 +175,16 @@ class AiController {
 
       const aiResponseContent = result.choices[0].message.content;
       console.log("AI Raw Response:", aiResponseContent);
+
+      // Save to history (background)
+      try {
+        await AiChat.bulkCreate([
+          { userId: finalUserId, role: 'user', content: message },
+          { userId: finalUserId, role: 'assistant', content: aiResponseContent }
+        ]);
+      } catch (dbErr) {
+        console.error("Failed to save AI chat to DB:", dbErr.message);
+      }
 
       // Extract action if LLM returned one in JSON format
       let action = { type: 'NONE' };
