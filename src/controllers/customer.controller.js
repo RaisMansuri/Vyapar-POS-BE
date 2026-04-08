@@ -16,7 +16,9 @@ exports.getCustomers = async (req, res) => {
   try {
     const customers = await Customer.findAll({ 
       where: { userId: req.user.id },
-      order: [['createdAt', 'DESC']] 
+      attributes: ['id', 'name', 'email', 'phone', 'loyaltyPoints', 'totalSpent', 'totalOrders', 'lastOrderDate'],
+      order: [['createdAt', 'DESC']],
+      raw: true
     });
     return successResponse(res, customers, 'Customers retrieved successfully');
   } catch (error) {
@@ -28,7 +30,8 @@ exports.getCustomers = async (req, res) => {
 exports.getCustomerById = async (req, res) => {
   try {
     const customer = await Customer.findOne({ 
-      where: { id: req.params.id, userId: req.user.id } 
+      where: { id: req.params.id, userId: req.user.id },
+      raw: true
     });
     if (!customer) return errorResponse(res, 'Customer not found', 404);
     return successResponse(res, customer, 'Customer retrieved successfully');

@@ -66,7 +66,9 @@ exports.getExpenses = async (req, res) => {
 
     const expenses = await Expense.findAll({
       where,
-      order: [['date', 'DESC']]
+      attributes: ['id', 'title', 'amount', 'category', 'date', 'description', 'paidBy'],
+      order: [['date', 'DESC']],
+      raw: true
     });
     return successResponse(res, expenses, 'Expenses retrieved successfully');
   } catch (error) {
@@ -125,24 +127,25 @@ exports.getExpenseStats = async (req, res) => {
       where.date = { [Op.between]: [start, end] };
     }
 
-    const stats = await Expense.findAll({
-      where,
-      attributes: [
-        ['category', '_id'],
-        [Sequelize.fn('SUM', Sequelize.col('amount')), 'total'],
-        [Sequelize.fn('COUNT', Sequelize.col('id')), 'count']
-      ],
-      group: ['category'],
-      raw: true
-    });
-
-    const overall = await Expense.findOne({
-      where,
-      attributes: [
-        [Sequelize.fn('SUM', Sequelize.col('amount')), 'totalExpenses']
-      ],
-      raw: true
-    });
+    const [stats, overall] = await Promise.all([
+      Expense.findAll({
+        where,
+        attributes: [
+          ['category', '_id'],
+          [Sequelize.fn('SUM', Sequelize.col('amount')), 'total'],
+          [Sequelize.fn('COUNT', Sequelize.col('id')), 'count']
+        ],
+        group: ['category'],
+        raw: true
+      }),
+      Expense.findOne({
+        where,
+        attributes: [
+          [Sequelize.fn('SUM', Sequelize.col('amount')), 'totalExpenses']
+        ],
+        raw: true
+      })
+    ]);
 
     return successResponse(res, {
       byCategory: stats,

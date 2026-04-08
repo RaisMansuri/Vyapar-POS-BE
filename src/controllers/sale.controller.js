@@ -26,66 +26,56 @@ const generateSaleNumber = async (req) => {
   return `SAL-${date}-${(count + 1).toString().padStart(3, '0')}`;
 };
 
-const resolveProductCategory = async (item, userId) => {
-  if (item.category) {
-    return item.category;
+const resolveProductCategory = (item, productsMap) => {
+  if (item.category) return item.category;
+  if (item.productId && productsMap[item.productId]) {
+    return productsMap[item.productId].category || 'Uncategorized';
   }
-
-  if (item.productId) {
-    const product = await Product.findOne({
-      where: { id: item.productId, userId },
-      attributes: ['category'],
-      raw: true
-    });
-    if (product?.category) {
-      return product.category;
-    }
-  }
-
-  if (item.name) {
-    const product = await Product.findOne({
-      where: { name: { [Op.iLike]: item.name }, userId },
-      attributes: ['category'],
-      raw: true
-    });
-    if (product?.category) {
-      return product.category;
-    }
-  }
-
   return 'Uncategorized';
 };
 
-const normalizeSaleItems = async (items = [], userId) => Promise.all(
-  (Array.isArray(items) ? items : []).map(async (item) => {
+const normalizeSaleItems = async (items = [], userId) => {
+  const itemArray = Array.isArray(items) ? items : [];
+  if (itemArray.length === 0) return [];
+
+  const productIds = itemArray.map(i => i.productId).filter(Boolean);
+  const products = await Product.findAll({
+    where: { id: { [Op.in]: productIds }, userId },
+    attributes: ['id', 'name', 'imageUrl', 'category', 'costPrice', 'gstRate'],
+    raw: true
+  });
+
+  const productsMap = products.reduce((map, p) => {
+    map[p.id] = p;
+    return map;
+  }, {});
+
+  return itemArray.map((item) => {
     const quantity = Number(item.quantity || 1);
     const price = Number(item.price || 0);
     const total = item.total !== undefined ? Number(item.total) : quantity * price;
-
-    const product = await Product.findOne({ 
-      where: { id: item.productId, userId },
-      raw: true 
-    });
+    const product = productsMap[item.productId];
     const costPrice = product ? product.costPrice : (item.costPrice || 0);
+    const category = resolveProductCategory(item, productsMap);
 
     return {
       productId: item.productId,
       product: {
         id: item.productId,
-        name: item.name || 'Unnamed Product',
+        name: item.name || product?.name || 'Unnamed Product',
         imageUrl: product ? product.imageUrl : (item.imageUrl || ''),
-        category: await resolveProductCategory(item, userId)
+        category
       },
-      name: item.name || 'Unnamed Product',
+      name: item.name || product?.name || 'Unnamed Product',
       quantity,
       price,
       costPrice,
       gstRate: product ? (product.gstRate || 0) : 0,
       total,
-      category: await resolveProductCategory(item, userId)
+      category
     };
-  })
-);
+  });
+};
 
 // Create a new sale
 exports.createSale = async (req, res) => {
@@ -127,50 +117,39 @@ exports.createSale = async (req, res) => {
     const paidAmount = amountPaid !== undefined ? Number(amountPaid) : computedTotalAmount;
     const amountDue = computedTotalAmount - paidAmount;
 
-    // Update inventory
-    for (const item of normalizedItems) {
-      if (item.productId) {
-        await Product.decrement({ stock: item.quantity }, {
-          where: { id: item.productId, userId: req.user.id }
-        });
-      }
-    }
+    // Batch Update inventory
+    const inventoryUpdates = normalizedItems
+      .filter(item => item.productId)
+      .map(item => Product.decrement({ stock: item.quantity }, {
+        where: { id: item.productId, userId: req.user.id }
+      }));
 
-    // CRM+ Integration: Loyalty Points
-    if (customerId) {
-        const customer = await Customer.findOne({ 
-          where: { id: customerId, userId: req.user.id } 
-        });
-        if (customer) {
-            // Accrue Loyalty Points (1 point per Rs 100)
-            const pointsEarned = Math.floor(computedTotalAmount / 100);
-            customer.loyaltyPoints += pointsEarned;
-            
-            customer.totalSpent = Number(customer.totalSpent) + computedTotalAmount;
-            customer.totalOrders += 1;
-            customer.lastOrderDate = new Date();
-            await customer.save();
-        }
-    }
-
-    // Associate with customer if provided or if user is a consumer
+    // Batch update customer info
+    let customerUpdatePromise = Promise.resolve();
     let customerIdToSave = customerId;
     if (!customerIdToSave && req.user && (req.user.role || '').toLowerCase() === 'consumer') {
       customerIdToSave = req.user.id;
     }
 
     if (customerIdToSave) {
-      try {
-        const customer = await Customer.findOne({ where: { id: customerIdToSave, userId: req.user.id } });
+      customerUpdatePromise = Customer.findOne({ 
+        where: { id: customerIdToSave, userId: req.user.id } 
+      }).then(customer => {
         if (customer) {
+          const pointsEarned = Math.floor(computedTotalAmount / 100);
+          customer.loyaltyPoints += pointsEarned;
+          customer.totalSpent = Number(customer.totalSpent) + computedTotalAmount;
           customer.totalOrders += 1;
           customer.lastOrderDate = new Date();
-          await customer.save();
+          return customer.save();
         }
-      } catch (custError) {
+      }).catch(custError => {
         console.error('Customer update failed during sale:', custError);
-      }
+      });
     }
+
+    // Run inventory and customer updates in parallel
+    await Promise.all([...inventoryUpdates, customerUpdatePromise]);
 
     const savedSale = await Sale.create({
       saleNumber,
@@ -390,65 +369,52 @@ exports.getSalesStats = async (req, res) => {
       ]
     };
     
-    const salesByDay = await Sale.findAll({
-      where,
-      attributes: [
-        [Sequelize.fn('DATE', Sequelize.col('timestamp')), 'day'],
-        [Sequelize.fn('SUM', Sequelize.col('totalAmount')), 'revenue'],
-        [Sequelize.fn('COUNT', Sequelize.col('id')), 'count']
-      ],
-      group: [Sequelize.fn('DATE', Sequelize.col('timestamp'))],
-      order: [[Sequelize.fn('DATE', Sequelize.col('timestamp')), 'ASC']],
-      raw: true
-    });
-
-    // Stats by category - Special handling for JSONB array
-    // This is more complex in Postgres/Sequelize without raw query
-    // We fetch and aggregate in JS for simplicity or use a raw query
-    const allSales = await Sale.findAll({
-      where: { userId: req.user.id },
-      attributes: ['items'],
-      raw: true
-    });
+    const [salesByDay, allSales, overall] = await Promise.all([
+      Sale.findAll({
+        where,
+        attributes: [
+          [Sequelize.fn('DATE', Sequelize.col('timestamp')), 'day'],
+          [Sequelize.fn('SUM', Sequelize.col('totalAmount')), 'revenue'],
+          [Sequelize.fn('COUNT', Sequelize.col('id')), 'count']
+        ],
+        group: [Sequelize.fn('DATE', Sequelize.col('timestamp'))],
+        order: [[Sequelize.fn('DATE', Sequelize.col('timestamp')), 'ASC']],
+        raw: true
+      }),
+      Sale.findAll({
+        where: { userId: req.user.id },
+        attributes: ['items'],
+        raw: true
+      }),
+      Sale.findOne({
+        where: { userId: req.user.id },
+        attributes: [
+          [Sequelize.fn('COUNT', Sequelize.col('id')), 'totalOrders'],
+          [Sequelize.fn('SUM', Sequelize.col('totalAmount')), 'totalRevenue']
+        ],
+        raw: true
+      })
+    ]);
 
     const categoryStats = {};
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    let todayProfit = 0;
+
     allSales.forEach(sale => {
+      const isToday = sale.timestamp && new Date(sale.timestamp) >= startOfToday;
       (sale.items || []).forEach(item => {
         const cat = item.category || 'Uncategorized';
         categoryStats[cat] = (categoryStats[cat] || 0) + Number(item.total || 0);
+        
+        if (isToday) {
+          const profitPerItem = (Number(item.price || 0) - Number(item.costPrice || 0)) * Number(item.quantity || 1);
+          todayProfit += profitPerItem;
+        }
       });
     });
 
     const salesByCategory = Object.entries(categoryStats).map(([name, value]) => ({ _id: name, value }));
-
-    const overall = await Sale.findOne({
-      where: { userId: req.user.id },
-      attributes: [
-        [Sequelize.fn('COUNT', Sequelize.col('id')), 'totalOrders'],
-        [Sequelize.fn('SUM', Sequelize.col('totalAmount')), 'totalRevenue']
-      ],
-      raw: true
-    });
-
-    // Today's Profit calculation
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-
-    const todaySales = await Sale.findAll({
-      where: {
-        userId: req.user.id,
-        timestamp: { [Op.gte]: startOfToday }
-      },
-      raw: true
-    });
-
-    let todayProfit = 0;
-    todaySales.forEach(sale => {
-      (sale.items || []).forEach(item => {
-        const profitPerItem = (Number(item.price || 0) - Number(item.costPrice || 0)) * Number(item.quantity || 1);
-        todayProfit += profitPerItem;
-      });
-    });
 
     return successResponse(res, {
       byDay: salesByDay.map(d => ({ _id: d.day, revenue: d.revenue, count: d.count })),

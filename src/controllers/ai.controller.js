@@ -55,10 +55,13 @@ class AiController {
       });
     }
 
-    // Fetch user from DB to get their personal API key
+    // Fetch user from DB to get their personal API key (Only necessary fields)
     let user;
     try {
-      user = await User.findByPk(finalUserId);
+      user = await User.findByPk(finalUserId, {
+        attributes: ['aiApiKey', 'aiModel', 'upiId'],
+        raw: true
+      });
     } catch (dbError) {
       console.error("[AI Chat] DB Error fetching user:", dbError);
     }
@@ -110,21 +113,23 @@ class AiController {
         - SHOW_PRODUCTS, ADD_TO_CART, GENERATE_QR, SHOW_INVOICE, etc.
       `;
 
-      // Build Context (keeping logic same but cleaner)
+      // Build Context (Optimized: Parallel fetching)
       let dataContext = "";
       const text = message.toLowerCase();
-      
-      // Fetch data based on keywords (using existing methods)
+      const contextPromises = [];
+
       if (text.includes('trending') || text.includes('popular')) {
-        const trending = await AiController.getTrendingProducts(finalUserId);
-        dataContext += `\nBUSINESS INSIGHTS: ${JSON.stringify(trending)}`;
-      } else if (text.includes('sale') || text.includes('revenue')) {
-        const stats = await AiController.getQuickStats(finalUserId);
-        dataContext += `\nSALES STATS: ${JSON.stringify(stats)}`;
-      } else if (text.includes('stock') || text.includes('inventory')) {
-        const stock = await AiController.getLowStockInfo(finalUserId);
-        dataContext += `\nINVENTORY: ${JSON.stringify(stock)}`;
+        contextPromises.push(AiController.getTrendingProducts(finalUserId).then(d => `\nBUSINESS INSIGHTS: ${JSON.stringify(d)}`));
       }
+      if (text.includes('sale') || text.includes('revenue')) {
+        contextPromises.push(AiController.getQuickStats(finalUserId).then(d => `\nSALES STATS: ${JSON.stringify(d)}`));
+      }
+      if (text.includes('stock') || text.includes('inventory')) {
+        contextPromises.push(AiController.getLowStockInfo(finalUserId).then(d => `\nINVENTORY: ${JSON.stringify(d)}`));
+      }
+
+      const contextResults = await Promise.all(contextPromises);
+      dataContext = contextResults.join("");
 
       const headers = {
         "Authorization": `Bearer ${apiKey}`,
@@ -176,15 +181,11 @@ class AiController {
       const aiResponseContent = result.choices[0].message.content;
       console.log("AI Raw Response:", aiResponseContent);
 
-      // Save to history (background)
-      try {
-        await AiChat.bulkCreate([
-          { userId: finalUserId, role: 'user', content: message },
-          { userId: finalUserId, role: 'assistant', content: aiResponseContent }
-        ]);
-      } catch (dbErr) {
-        console.error("Failed to save AI chat to DB:", dbErr.message);
-      }
+      // Save to history (Non-blocking background task)
+      AiChat.bulkCreate([
+        { userId: finalUserId, role: 'user', content: message },
+        { userId: finalUserId, role: 'assistant', content: aiResponseContent }
+      ]).catch(dbErr => console.error("Failed to save AI chat to DB:", dbErr.message));
 
       // Extract action if LLM returned one in JSON format
       let action = { type: 'NONE' };
@@ -257,66 +258,95 @@ class AiController {
   // --- Helper Data Methods ---
 
   static async getQuickStats(userId) {
-    const { Op } = require('sequelize');
+    const { Op, fn, col } = require('sequelize');
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
 
-    const sales = await Sale.findAll({
-      where: { timestamp: { [Op.gte]: startOfDay }, userId },
-      raw: true
-    });
-    const expenses = await Expense.findAll({
-      where: { date: { [Op.gte]: startOfDay }, userId },
-      raw: true
-    });
+    const [salesStats, expensesStats] = await Promise.all([
+      Sale.findOne({
+        attributes: [
+          [fn('SUM', col('totalAmount')), 'totalSales'],
+          [fn('COUNT', col('id')), 'saleCount']
+        ],
+        where: { timestamp: { [Op.gte]: startOfDay }, userId },
+        raw: true
+      }),
+      Expense.findOne({
+        attributes: [
+          [fn('SUM', col('amount')), 'totalExpenses']
+        ],
+        where: { date: { [Op.gte]: startOfDay }, userId },
+        raw: true
+      })
+    ]);
 
-    const totalSales = sales.reduce((sum, s) => sum + Number(s.totalAmount || 0), 0);
-    const totalExpenses = expenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
+    const totalSales = Number(salesStats?.totalSales || 0);
+    const totalExpenses = Number(expensesStats?.totalExpenses || 0);
+    const saleCount = Number(salesStats?.saleCount || 0);
 
     return {
       todaySales: totalSales,
       todayExpenses: totalExpenses,
       todayProfit: totalSales - totalExpenses,
       profitMargin: totalSales > 0 ? (((totalSales - totalExpenses) / totalSales) * 100).toFixed(2) + '%' : '0%',
-      saleCount: sales.length
+      saleCount: saleCount
     };
   }
 
   static async getLowStockInfo(userId) {
     const { Op, Sequelize } = require('sequelize');
     const lowStock = await Product.findAll({
+      attributes: ['name', 'stock'],
       where: { stock: { [Op.lte]: Sequelize.col('minStockLevel') }, userId },
       limit: 5,
       raw: true
     });
-    return { count: lowStock.length, items: lowStock.map(p => ({ name: p.name, stock: p.stock })) };
+    return { count: lowStock.length, items: lowStock };
   }
 
   static async getCustomerStats(userId) {
-    const totalCustomers = await Customer.count({ where: { userId } });
-    const topCustomers = await Customer.findAll({
-      where: { userId },
-      order: [['totalSpent', 'DESC']],
-      limit: 3,
-      raw: true
-    });
+    const [totalCustomers, topCustomers] = await Promise.all([
+      Customer.count({ where: { userId } }),
+      Customer.findAll({
+        attributes: ['name', 'totalSpent'],
+        where: { userId },
+        order: [['totalSpent', 'DESC']],
+        limit: 3,
+        raw: true
+      })
+    ]);
     return { totalCount: totalCustomers, topSpenders: topCustomers.map(c => ({ name: c.name, spent: c.totalSpent })) };
   }
 
   static async getTicketStats(userId) {
     const { Op } = require('sequelize');
-    const openCount = await Ticket.count({ where: { status: { [Op.in]: ['Open', 'In Progress'] }, userId } });
-    const recentTickets = await Ticket.findAll({ where: { userId }, order: [['createdAt', 'DESC']], limit: 3, raw: true });
-    return { openCount, recent: recentTickets.map(t => ({ subject: t.subject, status: t.status })) };
+    const [openCount, recentTickets] = await Promise.all([
+      Ticket.count({ where: { status: { [Op.in]: ['Open', 'In Progress'] }, userId } }),
+      Ticket.findAll({ 
+        attributes: ['subject', 'status'],
+        where: { userId }, 
+        order: [['createdAt', 'DESC']], 
+        limit: 3, 
+        raw: true 
+      })
+    ]);
+    return { openCount, recent: recentTickets };
   }
 
   static async getExpenseStats(userId) {
-    const expenses = await Expense.findAll({ where: { userId }, order: [['date', 'DESC']], limit: 5, raw: true });
-    return { recent: expenses.map(e => ({ title: e.title, amount: e.amount })) };
+    const expenses = await Expense.findAll({ 
+      attributes: ['title', 'amount'],
+      where: { userId }, 
+      order: [['date', 'DESC']], 
+      limit: 5, 
+      raw: true 
+    });
+    return { recent: expenses };
   }
 
   static async getRecentOrders(userId) {
     const orders = await Sale.findAll({
+      attributes: ['id', 'totalAmount', 'status', 'timestamp'],
       where: { userId },
       order: [['timestamp', 'DESC']],
       limit: 3,
@@ -360,7 +390,11 @@ class AiController {
     const { Op } = require('sequelize');
     const last30Days = new Date();
     last30Days.setDate(last30Days.getDate() - 30);
-    const sales = await Sale.findAll({ where: { timestamp: { [Op.gte]: last30Days }, userId }, raw: true });
+    const sales = await Sale.findAll({ 
+      attributes: ['items'],
+      where: { timestamp: { [Op.gte]: last30Days }, userId }, 
+      raw: true 
+    });
 
     // Aggregate product frequency
     const productCounts = {};
@@ -380,9 +414,26 @@ class AiController {
   }
 
   static async getProductPriceStats(userId) {
-    const cheapest = await Product.findAll({ where: { userId }, order: [['price', 'ASC']], limit: 3, raw: true });
-    const expensive = await Product.findAll({ where: { userId }, order: [['price', 'DESC']], limit: 3, raw: true });
-    return { cheapest: cheapest.map(p => ({ name: p.name, price: p.price })), expensive: expensive.map(p => ({ name: p.name, price: p.price })) };
+    const [cheapest, expensive] = await Promise.all([
+      Product.findAll({ 
+        attributes: ['name', 'price'],
+        where: { userId }, 
+        order: [['price', 'ASC']], 
+        limit: 3, 
+        raw: true 
+      }),
+      Product.findAll({ 
+        attributes: ['name', 'price'],
+        where: { userId }, 
+        order: [['price', 'DESC']], 
+        limit: 3, 
+        raw: true 
+      })
+    ]);
+    return { 
+      cheapest: cheapest.map(p => ({ name: p.name, price: p.price })), 
+      expensive: expensive.map(p => ({ name: p.name, price: p.price })) 
+    };
   }
 
   static async getCategoryPerformance(userId) {

@@ -76,7 +76,9 @@ exports.getProducts = async (req, res) => {
           [Op.or]: [req.user.id, '00000000-0000-0000-0000-000000000000']
         }
       },
-      order: [['createdAt', 'DESC']]
+      attributes: ['id', 'name', 'category', 'price', 'stock', 'imageUrl', 'barcode', 'minStockLevel'],
+      order: [['createdAt', 'DESC']],
+      raw: true
     });
     return successResponse(res, products, 'Products retrieved successfully');
   } catch (error) {
@@ -93,7 +95,9 @@ exports.getInventory = async (req, res) => {
           [Op.or]: [req.user.id, '00000000-0000-0000-0000-000000000000']
         }
       },
-      order: [['createdAt', 'DESC']]
+      attributes: ['id', 'name', 'category', 'price', 'stock', 'imageUrl', 'barcode', 'minStockLevel', 'costPrice'],
+      order: [['createdAt', 'DESC']],
+      raw: true
     });
     return successResponse(res, products, 'Inventory products retrieved successfully');
   } catch (error) {

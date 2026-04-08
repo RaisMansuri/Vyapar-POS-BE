@@ -42,7 +42,7 @@ app.use(cors({
 }));
 
 /* =======================
-   ✅ DATABASE CONNECTION MIDDLEWARE
+   ✅ DATABASE CONNECTION INITIALIZATION
 ======================= */
 let isConnected = false;
 
@@ -57,8 +57,13 @@ async function startServer() {
   }
 }
 
+// Fire-and-forget initialization at startup to reduce cold-start latency
+startServer().catch(err => console.error("Startup DB connection failed:", err));
+
 // Middleware to ensure DB connection before processing requests
 app.use(async (req, res, next) => {
+  if (isConnected) return next();
+  
   try {
     await startServer();
     next();

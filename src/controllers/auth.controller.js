@@ -198,7 +198,8 @@ const login = async (req, res) => {
 const getProfile = async (req, res) => {
   try {
     const user = await User.findByPk(req.user.id, {
-      attributes: { exclude: ['password'] }
+      attributes: { exclude: ['password'] },
+      raw: true
     });
     if (!user) return errorResponse(res, 'User not found', 404);
     return successResponse(res, user, 'Profile retrieved successfully');
@@ -210,22 +211,22 @@ const getProfile = async (req, res) => {
 const updateProfile = async (req, res) => {
   try {
     const { name, phone } = req.body;
-    const user = await User.findByPk(req.user.id);
     
-    if (!user) return errorResponse(res, 'User not found', 404);
+    const [updatedCount] = await User.update(
+      { name, phone },
+      { where: { id: req.user.id } }
+    );
 
-    if (name) user.name = name;
-    if (phone) user.phone = phone;
+    if (updatedCount === 0) {
+      return errorResponse(res, 'User not found or no changes made', 404);
+    }
 
-    await user.save();
+    const updatedUser = await User.findByPk(req.user.id, {
+      attributes: { exclude: ['password'] },
+      raw: true
+    });
 
-    return successResponse(res, {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      phone: user.phone,
-      role: user.role
-    }, 'Profile updated successfully');
+    return successResponse(res, updatedUser, 'Profile updated successfully');
   } catch (error) {
     return errorResponse(res, 'Failed to update profile', 500, error);
   }
