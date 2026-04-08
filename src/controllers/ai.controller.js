@@ -43,35 +43,22 @@ class AiController {
   static async chat(req, res) {
     const { message, userId, history, context } = req.body;
 
-    // Prioritize explicit userId from body, fallback to authenticated user id from JWT
+    // Use explicit userId from body, or req.user.id from JWT, or a 'guest' fallback
     const finalUserId = userId || req.user?.id;
 
-    console.log(`[AI Chat] Request from User ID: ${finalUserId} (Explicit in body: ${userId}, Authenticated: ${req.user?.id})`);
+    console.log(`[AI Chat] Request from User ID: ${finalUserId || 'Guest'}`);
 
-    if (!finalUserId) {
-      return res.status(401).json({
-        response: "User identity not found. Please log in again.",
-        action: { type: 'NAVIGATE', payload: '/auth/login' }
-      });
-    }
-
-    // Fetch user from DB to get their personal API key (Only necessary fields)
-    let user;
-    try {
-      user = await User.findByPk(finalUserId, {
-        attributes: ['aiApiKey', 'aiModel', 'upiId'],
-        raw: true
-      });
-    } catch (dbError) {
-      console.error("[AI Chat] DB Error fetching user:", dbError);
-    }
-
-    if (!user) {
-      console.warn(`[AI Chat] User not found in DB for ID: ${finalUserId}`);
-      return res.status(401).json({
-        response: "Your account could not be verified. Please log in again.",
-        action: { type: 'NAVIGATE', payload: '/auth/login' }
-      });
+    // Fetch user from DB if available
+    let user = null;
+    if (finalUserId) {
+      try {
+        user = await User.findByPk(finalUserId, {
+          attributes: ['aiApiKey', 'aiModel', 'upiId'],
+          raw: true
+        });
+      } catch (dbError) {
+        console.error("[AI Chat] DB Error fetching user:", dbError);
+      }
     }
 
     const apiKey = (user?.aiApiKey || process.env.GROQ_API_KEY || "").trim();
@@ -81,19 +68,20 @@ class AiController {
     const apiUrl = "https://api.groq.com/openai/v1/chat/completions";
 
     if (!apiKey) {
-      console.error(`[AI Chat] Groq API Key is missing for user: ${finalUserId}`);
-      return res.status(401).json({
-        response: "AI Assistant is not configured. Please contact the administrator or provide your own API key in settings.",
+      console.error(`[AI Chat] Groq API Key is missing.`);
+      return res.status(500).json({
+        response: "AI Assistant is currently not configured by the system administrator.",
         action: { type: 'HELP' }
       });
     }
 
-    console.log(`[AI Chat] Using Groq model: ${model} for User ID: ${finalUserId}`);
+    console.log(`[AI Chat] Using Groq model: ${model} (User: ${finalUserId || 'Guest'})`);
 
     try {
       // System Prompt Preparation
       const systemPrompt = `
-        You are the VyaparPOS AI Assistant, a professional business analyst for the user with ID: ${finalUserId}.
+        You are the VyaparPOS AI Assistant, a professional business analyst.
+        ${finalUserId ? `The current user ID is ${finalUserId}.` : "The user is currently browsing as a guest."}
         Your goal is to help shopkeepers and consumers manage POS data and navigate the app.
         
         CHECKOUT FLOW:
@@ -113,23 +101,26 @@ class AiController {
         - SHOW_PRODUCTS, ADD_TO_CART, GENERATE_QR, SHOW_INVOICE, etc.
       `;
 
-      // Build Context (Optimized: Parallel fetching)
+      // Build Context (Only if finalUserId exists)
       let dataContext = "";
       const text = message.toLowerCase();
-      const contextPromises = [];
+      
+      if (finalUserId) {
+        const contextPromises = [];
 
-      if (text.includes('trending') || text.includes('popular')) {
-        contextPromises.push(AiController.getTrendingProducts(finalUserId).then(d => `\nBUSINESS INSIGHTS: ${JSON.stringify(d)}`));
-      }
-      if (text.includes('sale') || text.includes('revenue')) {
-        contextPromises.push(AiController.getQuickStats(finalUserId).then(d => `\nSALES STATS: ${JSON.stringify(d)}`));
-      }
-      if (text.includes('stock') || text.includes('inventory')) {
-        contextPromises.push(AiController.getLowStockInfo(finalUserId).then(d => `\nINVENTORY: ${JSON.stringify(d)}`));
-      }
+        if (text.includes('trending') || text.includes('popular')) {
+          contextPromises.push(AiController.getTrendingProducts(finalUserId).then(d => `\nBUSINESS INSIGHTS: ${JSON.stringify(d)}`));
+        }
+        if (text.includes('sale') || text.includes('revenue')) {
+          contextPromises.push(AiController.getQuickStats(finalUserId).then(d => `\nSALES STATS: ${JSON.stringify(d)}`));
+        }
+        if (text.includes('stock') || text.includes('inventory')) {
+          contextPromises.push(AiController.getLowStockInfo(finalUserId).then(d => `\nINVENTORY: ${JSON.stringify(d)}`));
+        }
 
-      const contextResults = await Promise.all(contextPromises);
-      dataContext = contextResults.join("");
+        const contextResults = await Promise.all(contextPromises);
+        dataContext = contextResults.join("");
+      }
 
       const headers = {
         "Authorization": `Bearer ${apiKey}`,
@@ -181,11 +172,13 @@ class AiController {
       const aiResponseContent = result.choices[0].message.content;
       console.log("AI Raw Response:", aiResponseContent);
 
-      // Save to history (Non-blocking background task)
-      AiChat.bulkCreate([
-        { userId: finalUserId, role: 'user', content: message },
-        { userId: finalUserId, role: 'assistant', content: aiResponseContent }
-      ]).catch(dbErr => console.error("Failed to save AI chat to DB:", dbErr.message));
+      // Save to history (Non-blocking background task - only if user is logged in)
+      if (finalUserId) {
+        AiChat.bulkCreate([
+          { userId: finalUserId, role: 'user', content: message },
+          { userId: finalUserId, role: 'assistant', content: aiResponseContent }
+        ]).catch(dbErr => console.error("Failed to save AI chat to DB:", dbErr.message));
+      }
 
       // Extract action if LLM returned one in JSON format
       let action = { type: 'NONE' };
